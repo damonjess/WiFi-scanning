@@ -224,6 +224,23 @@ class WardrivingService : Service() {
             try { it.stopScan(bleScanCallback) } catch (e: SecurityException) {}
         }
         unregisterReceiver(wifiReceiver)
+
+        // Flush whatever's still buffered before the service dies
+        val snapshot = ScanStatusRepository.snapshot.value
+        val loc = lastKnownLocation
+        if (loc != null && (snapshot.wifiResults.isNotEmpty() || snapshot.bleDevices.isNotEmpty())) {
+            runBlocking {
+                android.util.Log.d("WardrivingService", "Final flush on stop: ${snapshot.wifiResults.size} WiFi, ${snapshot.bleDevices.size} BLE")
+                coordinator.commitCycle(
+                    latitude = loc.latitude,
+                    longitude = loc.longitude,
+                    altitude = loc.altitude,
+                    wifiResults = snapshot.wifiResults,
+                    bleResults = snapshot.bleDevices
+                )
+            }
+        }
+
         serviceScope.cancel()
     }
 
