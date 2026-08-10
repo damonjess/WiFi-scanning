@@ -3,13 +3,17 @@ package com.damon.wifiaudit.map
 import android.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.osmdroid.bonuspack.clustering.RadiusMarkerClusterer
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -17,19 +21,20 @@ import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 
 @Composable
 fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
     val context = LocalContext.current
     val wifiPoints by viewModel.wifiLocations.collectAsState()
     val blePoints by viewModel.bleLocations.collectAsState()
+    val trackPoints by viewModel.trackPoints.collectAsState()
+    val showTrack by viewModel.showTrack.collectAsState()
 
-    // Load data once when the screen appears
     LaunchedEffect(Unit) {
         viewModel.refresh()
     }
 
-    // Proper osmdroid lifecycle
     val mapView = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
@@ -46,11 +51,9 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         }
     }
 
-    // Rebuild overlays whenever the data changes
-    LaunchedEffect(wifiPoints, blePoints) {
+    LaunchedEffect(wifiPoints, blePoints, trackPoints, showTrack) {
         mapView.overlays.clear()
 
-        // Create clean circular markers to avoid the "purple blob" glitch
         val wifiIcon = createCircleMarker(Color.BLUE)
         val bleIcon = createCircleMarker(Color.MAGENTA)
 
@@ -66,6 +69,36 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         }
 
         val allPoints = mutableListOf<GeoPoint>()
+
+        // Breadcrumb trail — drawn first so markers layer on top of the line
+        if (showTrack && trackPoints.size >= 2) {
+            val trackGeoPoints = trackPoints.map { GeoPoint(it.latitude, it.longitude) }
+            val polyline = Polyline().apply {
+                setPoints(trackGeoPoints)
+                outlinePaint.color = Color.parseColor("#8000838F") // semi-transparent teal
+                outlinePaint.strokeWidth = 8f
+                outlinePaint.isAntiAlias = true
+            }
+            mapView.overlays.add(polyline)
+
+            // Start marker (green) and end marker (red) so direction of travel is clear
+            val startMarker = Marker(mapView).apply {
+                position = trackGeoPoints.first()
+                title = "Start"
+                snippet = formatTime(trackPoints.first().timestamp)
+                icon = android.graphics.drawable.BitmapDrawable(context.resources, createCircleMarker(Color.GREEN))
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            }
+            val endMarker = Marker(mapView).apply {
+                position = trackGeoPoints.last()
+                title = "End"
+                snippet = formatTime(trackPoints.last().timestamp)
+                icon = android.graphics.drawable.BitmapDrawable(context.resources, createCircleMarker(Color.RED))
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            }
+            mapView.overlays.add(startMarker)
+            mapView.overlays.add(endMarker)
+        }
 
         wifiPoints.forEach { record ->
             val geo = GeoPoint(record.latitude, record.longitude)
@@ -96,7 +129,6 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         if (wifiPoints.isNotEmpty()) mapView.overlays.add(wifiClusterer)
         if (blePoints.isNotEmpty()) mapView.overlays.add(bleClusterer)
 
-        // Center on the data
         if (allPoints.isNotEmpty()) {
             if (allPoints.size == 1) {
                 mapView.controller.setZoom(17.0)
@@ -118,7 +150,18 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // Helpful empty-state so you know whether the problem is data or rendering
+        if (trackPoints.size >= 2) {
+            FilterChip(
+                selected = showTrack,
+                onClick = { viewModel.toggleTrack() },
+                label = { Text("Route") },
+                leadingIcon = { androidx.compose.material3.Icon(Icons.Default.Timeline, contentDescription = null) },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+            )
+        }
+
         if (wifiPoints.isEmpty() && blePoints.isEmpty()) {
             Text(
                 text = "No sightings yet.\nRun a wardriving scan first.",
@@ -126,6 +169,11 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
             )
         }
     }
+}
+
+private fun formatTime(millis: Long): String {
+    val sdf = java.text.SimpleDateFormat("MMM d, HH:mm:ss", java.util.Locale.getDefault())
+    return sdf.format(java.util.Date(millis))
 }
 
 private fun createCircleMarker(color: Int): android.graphics.Bitmap {
