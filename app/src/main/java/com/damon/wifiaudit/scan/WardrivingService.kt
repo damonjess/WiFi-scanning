@@ -22,6 +22,8 @@ import com.damon.wifiaudit.ble.BleDeviceInfo
 import com.damon.wifiaudit.ble.IBeaconParser
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WardrivingRepository
+import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import com.google.android.gms.location.*
 import kotlinx.coroutines.*
 
@@ -38,6 +40,7 @@ class WardrivingService : Service() {
     private var currentSessionId: Long = -1L
     @Volatile private var lastKnownLocation: Location? = null
     private val bleDeviceMap = mutableMapOf<String, BleDeviceInfo>()
+    private val alertedDevices = mutableSetOf<String>()
 
     // ---- Wi-Fi ----
     private val wifiReceiver = object : BroadcastReceiver() {
@@ -193,6 +196,21 @@ class WardrivingService : Service() {
                 if (snapshot.wifiResults.isEmpty() && snapshot.bleDevices.isEmpty()) continue
                 if (currentSessionId < 0) continue
 
+                // Watchdog alerts
+                val newMatches = snapshot.wifiResults.mapNotNull { r ->
+                    val vendor = OuiVendorLookup.lookup(r.BSSID)
+                    SurveillanceDeviceWatchdog.classifyWifi(r.SSID, vendor)?.let { r.SSID to it }
+                } + snapshot.bleDevices.mapNotNull { d ->
+                    val vendor = OuiVendorLookup.lookup(d.macAddress)
+                    SurveillanceDeviceWatchdog.classifyBle(d.deviceName, vendor)?.let { (d.deviceName ?: d.macAddress) to it }
+                }
+
+                newMatches.forEach { (label, match) ->
+                    if (alertedDevices.add(label)) {
+                        showWatchdogNotification(match.category.label, label)
+                    }
+                }
+
                 android.util.Log.d("WardrivingService", "Committing cycle: ${snapshot.wifiResults.size} WiFi, ${snapshot.bleDevices.size} BLE at ${loc.latitude}, ${loc.longitude}")
                 coordinator.commitCycle(
                     sessionId = currentSessionId,
@@ -208,6 +226,22 @@ class WardrivingService : Service() {
                 bleDeviceMap.clear()
             }
         }
+    }
+
+    private fun showWatchdogNotification(category: String, deviceLabel: String) {
+        val channelId = "watchdog_alerts"
+        val channel = NotificationChannel(channelId, "Watchdog Alerts", NotificationManager.IMPORTANCE_HIGH)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("$category detected")
+            .setContentText(deviceLabel)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        getSystemService(NotificationManager::class.java).notify(deviceLabel.hashCode(), notification)
     }
 
     private fun hasFineLocation() = ActivityCompat.checkSelfPermission(

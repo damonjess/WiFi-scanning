@@ -15,6 +15,8 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.damon.wifiaudit.data.BleSightingRecord
 import com.damon.wifiaudit.data.WifiSightingRecord
+import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -97,6 +99,11 @@ private val dateFormat = SimpleDateFormat("MMM d, HH:mm:ss", Locale.getDefault()
 
 @Composable
 private fun WifiRecordCard(record: WifiSightingRecord) {
+    val vendor = remember(record.bssid) { OuiVendorLookup.lookup(record.bssid) }
+    val watchdogMatch = remember(record.ssid, vendor) {
+        SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
+    }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
@@ -105,9 +112,17 @@ private fun WifiRecordCard(record: WifiSightingRecord) {
             }
             Text(record.bssid, style = MaterialTheme.typography.bodySmall)
             Spacer(modifier = Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text(record.encryption) })
-                Text("${record.frequency} MHz", style = MaterialTheme.typography.labelSmall)
+                if (watchdogMatch != null) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("⚠ ${watchdogMatch.category.label}") },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    )
+                }
             }
             Text(
                 "${dateFormat.format(Date(record.timestamp))}  •  ${"%.5f".format(record.latitude)}, ${"%.5f".format(record.longitude)}",
@@ -120,7 +135,10 @@ private fun WifiRecordCard(record: WifiSightingRecord) {
 @Composable
 private fun BleRecordCard(record: BleSightingRecord) {
     val vendor = remember(record.macAddress) {
-        com.damon.wifiaudit.vendor.OuiVendorLookup.lookup(record.macAddress)
+        OuiVendorLookup.lookup(record.macAddress)
+    }
+    val watchdogMatch = remember(record.deviceName, vendor) {
+        SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -133,6 +151,15 @@ private fun BleRecordCard(record: BleSightingRecord) {
 
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (watchdogMatch != null) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("⚠ ${watchdogMatch.category.label}") },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    )
+                }
                 if (vendor != null) {
                     AssistChip(onClick = {}, label = { Text(vendor) })
                 }

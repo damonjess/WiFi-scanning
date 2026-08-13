@@ -8,6 +8,8 @@ import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.damon.wifiaudit.data.SessionSummary
+import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +23,8 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 @Composable
 fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
@@ -36,6 +40,12 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         viewModel.refresh()
     }
 
+    val locationOverlay = remember {
+        MyLocationNewOverlay(GpsMyLocationProvider(context), MapView(context)).apply {
+            enableMyLocation()
+        }
+    }
+
     val mapView = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
@@ -47,22 +57,28 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
             
             // Set a default center if no data yet (e.g. London)
             controller.setCenter(GeoPoint(51.5074, -0.1278))
+            
+            overlays.add(locationOverlay)
         }
     }
 
     DisposableEffect(Unit) {
         mapView.onResume()
+        locationOverlay.enableMyLocation()
         onDispose {
+            locationOverlay.disableMyLocation()
             mapView.onPause()
             mapView.onDetach()
         }
     }
 
     LaunchedEffect(wifiPoints, blePoints, trackPoints, showTrack) {
-        mapView.overlays.clear()
+        // Clear all except our location overlay
+        mapView.overlays.removeAll { it !is MyLocationNewOverlay }
 
         val wifiIcon = createCircleMarker(Color.BLUE)
         val bleIcon = createCircleMarker(Color.MAGENTA)
+        val warningIcon = createCircleMarker(Color.RED)
 
         val wifiClusterer = RadiusMarkerClusterer(context).apply {
             setRadius(80)
@@ -73,6 +89,14 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
             setRadius(80)
             textPaint.textSize = 32f
             textPaint.color = Color.WHITE
+        }
+        val watchdogClusterer = RadiusMarkerClusterer(context).apply {
+            setRadius(80)
+            textPaint.textSize = 32f
+            textPaint.color = Color.WHITE
+            // Customizing watchdog cluster to be distinct (e.g. red background)
+            // RadiusMarkerClusterer doesn't have a simple "clusterColor" property in this version,
+            // but the markers inside will be red.
         }
 
         val allPoints = mutableListOf<GeoPoint>()
@@ -108,33 +132,48 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         }
 
         wifiPoints.forEach { record ->
+            val vendor = OuiVendorLookup.lookup(record.bssid)
+            val match = SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
             val geo = GeoPoint(record.latitude, record.longitude)
             allPoints.add(geo)
             val marker = Marker(mapView).apply {
                 position = geo
-                title = "WiFi: ${record.ssid.ifBlank { "<hidden>" }}"
-                snippet = "${record.bssid} • ${record.encryption} • ${record.rssi} dBm"
-                icon = android.graphics.drawable.BitmapDrawable(context.resources, wifiIcon)
+                title = if (match != null) "⚠ ${match.category.label}: ${record.ssid}" else "WiFi: ${record.ssid}"
+                snippet = "${record.bssid} • ${record.encryption} • ${record.rssi} dBm" +
+                        (vendor?.let { " • $it" } ?: "")
+                icon = android.graphics.drawable.BitmapDrawable(
+                    context.resources,
+                    if (match != null) warningIcon else wifiIcon
+                )
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             }
-            wifiClusterer.add(marker)
+            if (match != null) watchdogClusterer.add(marker) else wifiClusterer.add(marker)
         }
 
         blePoints.forEach { record ->
+            val vendor = OuiVendorLookup.lookup(record.macAddress)
+            val match = SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
             val geo = GeoPoint(record.latitude, record.longitude)
             allPoints.add(geo)
             val marker = Marker(mapView).apply {
                 position = geo
-                title = "BLE: ${record.deviceName ?: record.macAddress}"
-                snippet = "${record.macAddress} • ${record.rssi} dBm"
-                icon = android.graphics.drawable.BitmapDrawable(context.resources, bleIcon)
+                title = if (match != null) "⚠ ${match.category.label}: ${record.deviceName ?: record.macAddress}" else "BLE: ${record.deviceName ?: record.macAddress}"
+                snippet = "${record.macAddress} • ${record.rssi} dBm" +
+                        (vendor?.let { " • $it" } ?: "")
+                icon = android.graphics.drawable.BitmapDrawable(
+                    context.resources,
+                    if (match != null) warningIcon else bleIcon
+                )
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             }
-            bleClusterer.add(marker)
+            if (match != null) watchdogClusterer.add(marker) else bleClusterer.add(marker)
         }
 
-        if (wifiPoints.isNotEmpty()) mapView.overlays.add(wifiClusterer)
-        if (blePoints.isNotEmpty()) mapView.overlays.add(bleClusterer)
+        if (wifiPoints.isNotEmpty() || blePoints.isNotEmpty()) {
+            if (!wifiClusterer.items.isEmpty()) mapView.overlays.add(wifiClusterer)
+            if (!bleClusterer.items.isEmpty()) mapView.overlays.add(bleClusterer)
+            if (!watchdogClusterer.items.isEmpty()) mapView.overlays.add(watchdogClusterer)
+        }
 
         if (allPoints.isNotEmpty()) {
             if (allPoints.size == 1) {
@@ -199,21 +238,28 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
                 )
             }
 
-            val currentSnapshot by viewModel.currentSnapshot.collectAsState()
-            if (currentSnapshot.latitude != null && currentSnapshot.longitude != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                IconButton(
-                    onClick = {
-                        val geo = GeoPoint(currentSnapshot.latitude!!, currentSnapshot.longitude!!)
-                        mapView.controller.animateTo(geo)
+            Spacer(modifier = Modifier.height(8.dp))
+            IconButton(
+                onClick = {
+                    val myLoc = locationOverlay.myLocation
+                    if (myLoc != null) {
+                        mapView.controller.animateTo(myLoc)
                         mapView.controller.setZoom(18.0)
-                    },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                ) {
-                    Icon(Icons.Default.MyLocation, contentDescription = "Center on my location")
-                }
+                    } else {
+                        // Fallback to scan snapshot if overlay hasn't fixed yet
+                        val currentSnapshot = viewModel.currentSnapshot.value
+                        if (currentSnapshot.latitude != null && currentSnapshot.longitude != null) {
+                            val geo = GeoPoint(currentSnapshot.latitude, currentSnapshot.longitude)
+                            mapView.controller.animateTo(geo)
+                            mapView.controller.setZoom(18.0)
+                        }
+                    }
+                },
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Icon(Icons.Default.MyLocation, contentDescription = "Center on my location")
             }
         }
 

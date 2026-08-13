@@ -69,7 +69,8 @@ class LocalNetworkScanner(
         }
 
         val mac = ArpCacheReader.macForIp(ip)
-        val isAlive = discoveryHits.isNotEmpty() || mac != null
+        val isPingable = if (discoveryHits.isEmpty() && mac == null) pingHost(ip) else false
+        val isAlive = discoveryHits.isNotEmpty() || mac != null || isPingable
 
         if (!isAlive) {
             return@coroutineScope HostScanResult(
@@ -100,6 +101,16 @@ class LocalNetworkScanner(
             }
         } catch (e: SocketTimeoutException) {
             false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun pingHost(ip: String): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec("/system/bin/ping -c 1 -W 1 $ip")
+            val result = process.waitFor()
+            result == 0
         } catch (e: Exception) {
             false
         }
