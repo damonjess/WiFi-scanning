@@ -6,10 +6,19 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "location_fixes",
-    indices = [Index(value = ["timestamp"])]
+    foreignKeys = [
+        androidx.room.ForeignKey(
+            entity = ScanSession::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = androidx.room.ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index(value = ["timestamp"]), Index(value = ["sessionId"])]
 )
 data class LocationFix(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: Long,
     val latitude: Double,
     val longitude: Double,
     val altitude: Double,

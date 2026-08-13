@@ -9,9 +9,10 @@ import com.damon.wifiaudit.data.*
  * arrives with whatever WiFi/BLE results are currently buffered.
  */
 class ScanCycleCoordinator(
-    private val repository: WardrivingRepository
+    val repository: WardrivingRepository
 ) {
     suspend fun commitCycle(
+        sessionId: Long,
         latitude: Double,
         longitude: Double,
         altitude: Double,
@@ -19,6 +20,7 @@ class ScanCycleCoordinator(
         bleResults: List<BleDeviceInfo>
     ) {
         val location = LocationFix(
+            sessionId = sessionId,
             latitude = latitude,
             longitude = longitude,
             altitude = altitude,

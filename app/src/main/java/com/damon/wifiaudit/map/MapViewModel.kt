@@ -3,19 +3,27 @@ package com.damon.wifiaudit.map
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.damon.wifiaudit.data.AppDatabase
-import com.damon.wifiaudit.data.BleSightingRecord
-import com.damon.wifiaudit.data.LocationFix
-import com.damon.wifiaudit.data.WifiSightingRecord
+import com.damon.wifiaudit.data.*
+import com.damon.wifiaudit.scan.ScanStatusRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getInstance(application)
     private val historyDao = db.sightingHistoryDao()
     private val locationDao = db.locationFixDao()
+    private val sessionDao = db.scanSessionDao()
+
+    val currentSnapshot = ScanStatusRepository.snapshot
+
+    private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
+    val sessions: StateFlow<List<SessionSummary>> = _sessions.asStateFlow()
+
+    private val _selectedSessionId = MutableStateFlow<Long?>(null)
+    val selectedSessionId: StateFlow<Long?> = _selectedSessionId.asStateFlow()
 
     private val _wifiLocations = MutableStateFlow<List<WifiSightingRecord>>(emptyList())
     val wifiLocations: StateFlow<List<WifiSightingRecord>> = _wifiLocations.asStateFlow()
@@ -29,23 +37,44 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _showTrack = MutableStateFlow(true)
     val showTrack: StateFlow<Boolean> = _showTrack.asStateFlow()
 
+    fun selectSession(sessionId: Long?) {
+        _selectedSessionId.value = sessionId
+        loadSessionData(sessionId)
+    }
+
     fun toggleTrack() {
         _showTrack.value = !_showTrack.value
     }
 
     fun refresh() {
         viewModelScope.launch {
-            android.util.Log.i("MapVM", "Refresh requested")
+            val summaries = sessionDao.getAllSessionSummaries()
+            _sessions.value = summaries
+            val targetId = _selectedSessionId.value ?: summaries.firstOrNull()?.id
+            _selectedSessionId.value = targetId
+            loadSessionData(targetId)
+        }
+    }
+
+    private fun loadSessionData(sessionId: Long?) {
+        viewModelScope.launch {
+            if (sessionId == null) {
+                _wifiLocations.value = emptyList()
+                _bleLocations.value = emptyList()
+                _trackPoints.value = emptyList()
+                return@launch
+            }
             try {
-                val wifi = historyDao.getWifiHistory()
-                val ble = historyDao.getBleHistory()
-                val track = locationDao.getAll() // already ordered by timestamp ASC
-                android.util.Log.i("MapVM", "DATA_LOADED: WiFi=${wifi.size}, BLE=${ble.size}, track points=${track.size}")
-                _wifiLocations.value = wifi
-                _bleLocations.value = ble
-                _trackPoints.value = track
+                val allWifi = historyDao.getWifiHistory()
+                val allBle = historyDao.getBleHistory()
+                val sessionFixes = locationDao.getFixesForSession(sessionId)
+                _trackPoints.value = sessionFixes
+
+                val sessionFixIds = sessionFixes.map { it.id }.toSet()
+                _wifiLocations.value = allWifi.filter { it.locationId in sessionFixIds }
+                _bleLocations.value = allBle.filter { it.locationId in sessionFixIds }
             } catch (e: Exception) {
-                android.util.Log.e("MapVM", "Failed to load history", e)
+                android.util.Log.e("MapVM", "Failed to load session data", e)
             }
         }
     }

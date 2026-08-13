@@ -17,6 +17,9 @@ interface LocationFixDao {
     @Query("SELECT * FROM location_fixes ORDER BY timestamp ASC")
     suspend fun getAll(): List<LocationFix>
 
+    @Query("SELECT * FROM location_fixes WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    suspend fun getFixesForSession(sessionId: Long): List<LocationFix>
+
     @Transaction
     @Query("SELECT * FROM location_fixes ORDER BY timestamp ASC")
     suspend fun getAllWithSightings(): List<LocationWithSightings>

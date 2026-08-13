@@ -27,8 +27,10 @@ object ArpCacheReader {
                     val cols = line.trim().split(Regex("\\s+"))
                     if (cols.size >= 4) {
                         val ip = cols[0]
+                        val flag = cols[2]
                         val mac = cols[3]
-                        if (mac != EMPTY_MAC) ip to mac else null
+                        // 0x0 flag means the entry is incomplete (failed to resolve)
+                        if (mac != EMPTY_MAC && flag != "0x0") ip to mac else null
                     } else null
                 }
                 .toMap()

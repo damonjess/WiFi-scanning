@@ -35,6 +35,7 @@ class WardrivingService : Service() {
     private lateinit var coordinator: ScanCycleCoordinator
     private var bluetoothManager: BluetoothManager? = null
 
+    private var currentSessionId: Long = -1L
     @Volatile private var lastKnownLocation: Location? = null
     private val bleDeviceMap = mutableMapOf<String, BleDeviceInfo>()
 
@@ -129,6 +130,12 @@ class WardrivingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+
+        serviceScope.launch {
+            currentSessionId = coordinator.repository.startSession()
+            android.util.Log.i("WardrivingService", "Started session $currentSessionId")
+        }
+
         startLocationUpdates()
         startBleScan()
         startWifiScanLoop()
@@ -184,9 +191,11 @@ class WardrivingService : Service() {
                 val snapshot = ScanStatusRepository.snapshot.value
                 val loc = lastKnownLocation ?: continue
                 if (snapshot.wifiResults.isEmpty() && snapshot.bleDevices.isEmpty()) continue
+                if (currentSessionId < 0) continue
 
                 android.util.Log.d("WardrivingService", "Committing cycle: ${snapshot.wifiResults.size} WiFi, ${snapshot.bleDevices.size} BLE at ${loc.latitude}, ${loc.longitude}")
                 coordinator.commitCycle(
+                    sessionId = currentSessionId,
                     latitude = loc.latitude,
                     longitude = loc.longitude,
                     altitude = loc.altitude,
@@ -228,16 +237,23 @@ class WardrivingService : Service() {
         // Flush whatever's still buffered before the service dies
         val snapshot = ScanStatusRepository.snapshot.value
         val loc = lastKnownLocation
-        if (loc != null && (snapshot.wifiResults.isNotEmpty() || snapshot.bleDevices.isNotEmpty())) {
+        if (loc != null && currentSessionId >= 0 && (snapshot.wifiResults.isNotEmpty() || snapshot.bleDevices.isNotEmpty())) {
             runBlocking {
                 android.util.Log.d("WardrivingService", "Final flush on stop: ${snapshot.wifiResults.size} WiFi, ${snapshot.bleDevices.size} BLE")
                 coordinator.commitCycle(
+                    sessionId = currentSessionId,
                     latitude = loc.latitude,
                     longitude = loc.longitude,
                     altitude = loc.altitude,
                     wifiResults = snapshot.wifiResults,
                     bleResults = snapshot.bleDevices
                 )
+            }
+        }
+
+        if (currentSessionId >= 0) {
+            runBlocking {
+                coordinator.repository.endSession(currentSessionId)
             }
         }
 

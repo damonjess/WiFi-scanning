@@ -28,6 +28,7 @@ class WifiRfScanService : Service() {
     private lateinit var scanScheduler: ThrottleAwareScanScheduler
     private lateinit var bleScanManager: BleScanManager
 
+    private var currentSessionId: Long = -1L
     private val coordinator by lazy { ScanCycleCoordinator(WardrivingRepository(db)) }
 
     @Volatile private var lastKnownLocation: Location? = null
@@ -69,6 +70,12 @@ class WifiRfScanService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+
+        serviceScope.launch {
+            currentSessionId = coordinator.repository.startSession()
+            android.util.Log.i("WifiRfScanService", "Started session $currentSessionId")
+        }
+
         startHighAccuracyLocationUpdates()
         bleScanManager.startScan()
         startScanLoop()
@@ -126,9 +133,11 @@ class WifiRfScanService : Service() {
         }
 
         val loc = lastKnownLocation ?: return
+        if (currentSessionId < 0) return
 
         serviceScope.launch {
             coordinator.commitCycle(
+                sessionId = currentSessionId,
                 latitude = loc.latitude,
                 longitude = loc.longitude,
                 altitude = loc.altitude,
@@ -164,6 +173,13 @@ class WifiRfScanService : Service() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
         bleScanManager.stopScan()
         unregisterReceiver(scanResultsReceiver)
+
+        if (currentSessionId >= 0) {
+            runBlocking {
+                coordinator.repository.endSession(currentSessionId)
+            }
+        }
+
         serviceScope.cancel()
     }
 

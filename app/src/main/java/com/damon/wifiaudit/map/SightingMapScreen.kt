@@ -1,14 +1,13 @@
 package com.damon.wifiaudit.map
 
 import android.graphics.Color
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Timeline
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.damon.wifiaudit.data.SessionSummary
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,6 +29,8 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
     val blePoints by viewModel.bleLocations.collectAsState()
     val trackPoints by viewModel.trackPoints.collectAsState()
     val showTrack by viewModel.showTrack.collectAsState()
+    val sessions by viewModel.sessions.collectAsState()
+    val selectedSessionId by viewModel.selectedSessionId.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.refresh()
@@ -39,7 +40,13 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
+            isTilesScaledToDpi = true
+            minZoomLevel = 3.0
+            maxZoomLevel = 20.0
             controller.setZoom(16.0)
+            
+            // Set a default center if no data yet (e.g. London)
+            controller.setCenter(GeoPoint(51.5074, -0.1278))
         }
     }
 
@@ -147,19 +154,67 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { mapView },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            update = { 
+                // MapView state is mostly handled by LaunchedEffect(wifiPoints...)
+                // but we could trigger invalidation here if needed
+            }
         )
 
-        if (trackPoints.size >= 2) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp),
+            horizontalAlignment = Alignment.End
+        ) {
+            var expanded by remember { mutableStateOf(false) }
+            val selectedSession = sessions.find { it.id == selectedSessionId }
+            val label = selectedSession?.let { formatSessionLabel(it) } ?: "Select Session"
+
             FilterChip(
-                selected = showTrack,
-                onClick = { viewModel.toggleTrack() },
-                label = { Text("Route") },
-                leadingIcon = { androidx.compose.material3.Icon(Icons.Default.Timeline, contentDescription = null) },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp)
+                selected = false,
+                onClick = { expanded = true },
+                label = { Text(label) }
             )
+
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                sessions.forEach { session ->
+                    DropdownMenuItem(
+                        text = { Text(formatSessionLabel(session)) },
+                        onClick = {
+                            viewModel.selectSession(session.id)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+
+            if (trackPoints.size >= 2) {
+                Spacer(modifier = Modifier.height(8.dp))
+                FilterChip(
+                    selected = showTrack,
+                    onClick = { viewModel.toggleTrack() },
+                    label = { Text("Route") },
+                    leadingIcon = { Icon(Icons.Default.Timeline, contentDescription = null) }
+                )
+            }
+
+            val currentSnapshot by viewModel.currentSnapshot.collectAsState()
+            if (currentSnapshot.latitude != null && currentSnapshot.longitude != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                IconButton(
+                    onClick = {
+                        val geo = GeoPoint(currentSnapshot.latitude!!, currentSnapshot.longitude!!)
+                        mapView.controller.animateTo(geo)
+                        mapView.controller.setZoom(18.0)
+                    },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Icon(Icons.Default.MyLocation, contentDescription = "Center on my location")
+                }
+            }
         }
 
         if (wifiPoints.isEmpty() && blePoints.isEmpty()) {
@@ -169,6 +224,11 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
             )
         }
     }
+}
+
+private fun formatSessionLabel(s: com.damon.wifiaudit.data.SessionSummary): String {
+    val sdf = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
+    return "${sdf.format(java.util.Date(s.startTime))} • ${s.wifiCount + s.bleCount} sightings"
 }
 
 private fun formatTime(millis: Long): String {

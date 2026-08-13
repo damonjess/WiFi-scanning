@@ -30,6 +30,14 @@ class WardrivingRepository(
         }
     }
 
+    suspend fun startSession(): Long {
+        return db.scanSessionDao().insert(ScanSession(startTime = System.currentTimeMillis(), endTime = null))
+    }
+
+    suspend fun endSession(sessionId: Long) {
+        db.scanSessionDao().markEnded(sessionId, System.currentTimeMillis())
+    }
+
     suspend fun deleteFix(locationId: Long) {
         // Cascade delete handles wifi_sightings + ble_sightings automatically
         locationDao.deleteById(locationId)
