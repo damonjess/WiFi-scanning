@@ -36,7 +36,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.damon.wifiaudit.ble.BleUuidResolver
+import com.damon.wifiaudit.ble.GattUuidResolver
 import com.damon.wifiaudit.ble.LightGattManager
+import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.ui.theme.*
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import org.osmdroid.util.GeoPoint
@@ -286,7 +288,7 @@ fun DeviceDetailScreen(
                         initiallyExpanded = services.isNotEmpty()
                     ) {
                         services.forEach { svc ->
-                            ServiceCard(svc)
+                            ServiceCard(svc, viewModel.database)
                         }
                         if (services.isEmpty() && state.gattState is LightGattManager.State.Disconnected) {
                             Text(
@@ -358,11 +360,17 @@ private fun ExpandableSection(
 }
 
 @Composable
-private fun ServiceCard(service: LightGattManager.BleService) {
+private fun ServiceCard(service: LightGattManager.BleService, db: AppDatabase) {
     val context = BleUuidResolver.serviceContext(service.uuid)
     val isStandard = remember(service.uuid) { BleUuidResolver.isStandardUuid(service.uuid) }
     val shortForm = remember(service.uuid) { BleUuidResolver.fullShortForm(service.uuid) }
     
+    // Database-backed resolution
+    var resolvedName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(service.uuid) {
+        resolvedName = GattUuidResolver.resolveServiceName(service.uuid, db)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -395,7 +403,8 @@ private fun ServiceCard(service: LightGattManager.BleService) {
                             if (context != null) {
                                 append(context.icon + " ")
                             }
-                            append(BleUuidResolver.serviceName(service.uuid))
+                            // Priority: Resolved Name > Hardcoded Name > Raw UUID
+                            append(resolvedName ?: BleUuidResolver.serviceName(service.uuid))
                         },
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -431,7 +440,7 @@ private fun ServiceCard(service: LightGattManager.BleService) {
             if (service.characteristics.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 service.characteristics.forEach { char ->
-                    CharRow(char)
+                    CharRow(char, db)
                 }
             }
         }
@@ -439,10 +448,15 @@ private fun ServiceCard(service: LightGattManager.BleService) {
 }
 
 @Composable
-private fun CharRow(char: LightGattManager.BleCharacteristic) {
+private fun CharRow(char: LightGattManager.BleCharacteristic, db: AppDatabase) {
     val ctx = BleUuidResolver.characteristicContext(char.uuid)
-    val name = BleUuidResolver.characteristicName(char.uuid)
+    val nameFallback = BleUuidResolver.characteristicName(char.uuid)
     val isStandard = BleUuidResolver.isStandardUuid(char.uuid)
+
+    var resolvedName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(char.uuid) {
+        resolvedName = GattUuidResolver.resolveCharacteristicName(char.uuid, db)
+    }
     
     Row(
         modifier = Modifier
@@ -457,7 +471,7 @@ private fun CharRow(char: LightGattManager.BleCharacteristic) {
                 Text(
                     buildAnnotatedString {
                         if (ctx != null) append(ctx.icon + " ")
-                        append(name)
+                        append(resolvedName ?: nameFallback)
                     },
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.85f)

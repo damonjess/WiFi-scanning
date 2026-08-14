@@ -15,6 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import com.damon.wifiaudit.data.AppDatabase
+import com.damon.wifiaudit.data.oui.OuiCsvImporter
+import com.damon.wifiaudit.data.oui.StandardGattSeeder
 import com.damon.wifiaudit.map.OsmConfig
 import com.damon.wifiaudit.ui.AppRoot
 import com.damon.wifiaudit.ui.PermissionGateScreen
@@ -26,7 +29,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         OsmConfig.initialize(applicationContext)
-        lifecycleScope.launch { OuiVendorLookup.initialize(applicationContext) }
+        lifecycleScope.launch {
+            OuiVendorLookup.initialize(applicationContext)
+            OuiCsvImporter.importIfNeeded(applicationContext)
+            val db = AppDatabase.getInstance(applicationContext)
+            StandardGattSeeder.seedIfNeeded(db)
+        }
         setContent {
             WiFiAuditTheme {
                 PermissionGateScreen { AppRoot() }

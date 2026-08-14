@@ -7,11 +7,16 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import androidx.paging.map
+import com.damon.wifiaudit.ble.GattSnapshotSerializer
+import com.damon.wifiaudit.ble.GattUuidResolver
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.BleSightingRecord
 import com.damon.wifiaudit.data.WifiSightingRecord
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class HistoryTab { WIFI, BLE }
 enum class SortMode { RECENT, SIGNAL_STRONGEST }
@@ -53,5 +58,22 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                     pagingSourceFactory = { dao.pagedBleHistory(q, sort == SortMode.SIGNAL_STRONGEST) }
                 ).flow
             }
+            .map { pagingData ->
+                pagingData.map { record ->
+                    if (record.hasGatt) {
+                        val resolved = resolvePrimaryGattService(record.macAddress)
+                        record.copy(primaryGattService = resolved)
+                    } else record
+                }
+            }
             .cachedIn(viewModelScope)
+
+    private val database = AppDatabase.getInstance(application)
+
+    private suspend fun resolvePrimaryGattService(mac: String): String? = withContext(Dispatchers.IO) {
+        val snap = database.bleGattSnapshotDao().getLatestForMac(mac) ?: return@withContext null
+        val services = GattSnapshotSerializer.fromJson(snap.servicesJson)
+        val firstService = services.firstOrNull() ?: return@withContext null
+        GattUuidResolver.resolveServiceName(firstService.uuid, database) ?: firstService.name
+    }
 }

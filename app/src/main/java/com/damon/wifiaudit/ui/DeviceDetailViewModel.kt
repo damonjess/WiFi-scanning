@@ -10,6 +10,7 @@ import com.damon.wifiaudit.ble.LightGattManager
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WifiSightingRecord
 import com.damon.wifiaudit.data.entity.BleGattSnapshot
+import com.damon.wifiaudit.util.MacOuiExtractor
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ class DeviceDetailViewModel(
 ) : AndroidViewModel(app) {
 
     private val db = AppDatabase.getInstance(app)
+    val database: AppDatabase get() = db
 
     data class UiState(
         val name: String = "",
@@ -66,10 +68,11 @@ class DeviceDetailViewModel(
             if (type == "BLE") {
                 val list = db.bleSightingDao().getHistoryForMac(mac).first()
                 val latest = list.firstOrNull() ?: return
+                val dbVendor = db.ouiVendorDao().lookupVendor(MacOuiExtractor.extractOui(mac))
                 _state.value = _state.value.copy(
                     name = latest.deviceName ?: "Unknown",
                     macAddress = latest.macAddress,
-                    vendor = OuiVendorLookup.lookup(latest.macAddress),
+                    vendor = dbVendor ?: OuiVendorLookup.lookup(latest.macAddress),
                     rssi = latest.rssi,
                     latitude = latest.latitude,
                     longitude = latest.longitude,
@@ -80,10 +83,11 @@ class DeviceDetailViewModel(
             } else {
                 val list = db.wifiSightingDao().getHistoryForBssid(mac).first()
                 val latest = list.firstOrNull() ?: return
+                val dbVendor = db.ouiVendorDao().lookupVendor(MacOuiExtractor.extractOui(mac))
                 _state.value = _state.value.copy(
                     name = latest.ssid.ifBlank { "Hidden Network" },
                     macAddress = latest.bssid,
-                    vendor = OuiVendorLookup.lookup(latest.bssid),
+                    vendor = dbVendor ?: OuiVendorLookup.lookup(latest.bssid),
                     rssi = latest.rssi,
                     encryption = latest.encryption,
                     latitude = latest.latitude,

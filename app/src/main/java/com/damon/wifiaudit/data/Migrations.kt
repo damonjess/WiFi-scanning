@@ -65,3 +65,31 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS oui_vendors (
+                oui TEXT NOT NULL PRIMARY KEY,
+                vendorName TEXT NOT NULL,
+                country TEXT,
+                address TEXT
+            )
+        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_oui ON oui_vendors(oui)")
+    }
+}
+
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS standard_gatt_uuids (
+                uuid TEXT NOT NULL,
+                type TEXT NOT NULL,
+                name TEXT NOT NULL,
+                PRIMARY KEY(uuid, type)
+            )
+        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_gatt_uuid ON standard_gatt_uuids(uuid)")
+    }
+}
+

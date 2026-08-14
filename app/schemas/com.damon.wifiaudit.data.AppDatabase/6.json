@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 6,
-    "identityHash": "4ed238ca4083d6fc9f4ce583f288d0cb",
+    "identityHash": "71890442f4a1d94f2308cfe389e6790d",
     "entities": [
       {
         "tableName": "ap_scans",
@@ -434,9 +434,15 @@
         "foreignKeys": []
       },
       {
-        "tableName": "tracked_devices",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`macAddress` TEXT NOT NULL, `displayName` TEXT, `vendor` TEXT, `deviceType` TEXT NOT NULL, `isFavorite` INTEGER NOT NULL, `firstSeenAt` INTEGER NOT NULL, `lastSeenAt` INTEGER NOT NULL, `detectCount` INTEGER NOT NULL, `tags` TEXT NOT NULL, `rawAdvData` TEXT, `connectionState` TEXT NOT NULL, PRIMARY KEY(`macAddress`))",
+        "tableName": "ble_gatt_snapshots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `macAddress` TEXT NOT NULL, `deviceName` TEXT, `servicesJson` TEXT NOT NULL, `serviceCount` INTEGER NOT NULL, `characteristicCount` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL)",
         "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
           {
             "fieldPath": "macAddress",
             "columnName": "macAddress",
@@ -444,284 +450,89 @@
             "notNull": true
           },
           {
-            "fieldPath": "displayName",
-            "columnName": "displayName",
+            "fieldPath": "deviceName",
+            "columnName": "deviceName",
             "affinity": "TEXT",
             "notNull": false
           },
           {
-            "fieldPath": "vendor",
-            "columnName": "vendor",
-            "affinity": "TEXT",
-            "notNull": false
-          },
-          {
-            "fieldPath": "deviceType",
-            "columnName": "deviceType",
+            "fieldPath": "servicesJson",
+            "columnName": "servicesJson",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "isFavorite",
-            "columnName": "isFavorite",
+            "fieldPath": "serviceCount",
+            "columnName": "serviceCount",
             "affinity": "INTEGER",
             "notNull": true
           },
           {
-            "fieldPath": "firstSeenAt",
-            "columnName": "firstSeenAt",
+            "fieldPath": "characteristicCount",
+            "columnName": "characteristicCount",
             "affinity": "INTEGER",
             "notNull": true
           },
           {
-            "fieldPath": "lastSeenAt",
-            "columnName": "lastSeenAt",
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
             "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "detectCount",
-            "columnName": "detectCount",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "tags",
-            "columnName": "tags",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "rawAdvData",
-            "columnName": "rawAdvData",
-            "affinity": "TEXT",
-            "notNull": false
-          },
-          {
-            "fieldPath": "connectionState",
-            "columnName": "connectionState",
-            "affinity": "TEXT",
             "notNull": true
           }
         ],
         "primaryKey": {
-          "autoGenerate": false,
+          "autoGenerate": true,
           "columnNames": [
-            "macAddress"
+            "id"
           ]
         },
         "indices": [],
         "foreignKeys": []
       },
       {
-        "tableName": "ble_gatt_services",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `deviceMac` TEXT NOT NULL, `uuid` TEXT NOT NULL, `serviceType` INTEGER NOT NULL, `instanceId` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, FOREIGN KEY(`deviceMac`) REFERENCES `tracked_devices`(`macAddress`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "tableName": "oui_vendors",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`oui` TEXT NOT NULL, `vendorName` TEXT NOT NULL, `country` TEXT, `address` TEXT, PRIMARY KEY(`oui`))",
         "fields": [
           {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "deviceMac",
-            "columnName": "deviceMac",
+            "fieldPath": "oui",
+            "columnName": "oui",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "uuid",
-            "columnName": "uuid",
+            "fieldPath": "vendorName",
+            "columnName": "vendorName",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "serviceType",
-            "columnName": "serviceType",
-            "affinity": "INTEGER",
-            "notNull": true
+            "fieldPath": "country",
+            "columnName": "country",
+            "affinity": "TEXT",
+            "notNull": false
           },
           {
-            "fieldPath": "instanceId",
-            "columnName": "instanceId",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "timestamp",
-            "columnName": "timestamp",
-            "affinity": "INTEGER",
-            "notNull": true
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT",
+            "notNull": false
           }
         ],
         "primaryKey": {
-          "autoGenerate": true,
+          "autoGenerate": false,
           "columnNames": [
-            "id"
+            "oui"
           ]
         },
         "indices": [
           {
-            "name": "index_ble_gatt_services_deviceMac",
-            "unique": false,
+            "name": "index_oui_vendors_oui",
+            "unique": true,
             "columnNames": [
-              "deviceMac"
+              "oui"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_ble_gatt_services_deviceMac` ON `${TABLE_NAME}` (`deviceMac`)"
-          }
-        ],
-        "foreignKeys": [
-          {
-            "table": "tracked_devices",
-            "onDelete": "CASCADE",
-            "onUpdate": "NO ACTION",
-            "columns": [
-              "deviceMac"
-            ],
-            "referencedColumns": [
-              "macAddress"
-            ]
-          }
-        ]
-      },
-      {
-        "tableName": "ble_gatt_characteristics",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `serviceId` INTEGER NOT NULL, `uuid` TEXT NOT NULL, `properties` INTEGER NOT NULL, `permissions` INTEGER NOT NULL, `instanceId` INTEGER NOT NULL, `descriptorsJson` TEXT NOT NULL, FOREIGN KEY(`serviceId`) REFERENCES `ble_gatt_services`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "serviceId",
-            "columnName": "serviceId",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "uuid",
-            "columnName": "uuid",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "properties",
-            "columnName": "properties",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "permissions",
-            "columnName": "permissions",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "instanceId",
-            "columnName": "instanceId",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "descriptorsJson",
-            "columnName": "descriptorsJson",
-            "affinity": "TEXT",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": true,
-          "columnNames": [
-            "id"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_ble_gatt_characteristics_serviceId",
-            "unique": false,
-            "columnNames": [
-              "serviceId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_ble_gatt_characteristics_serviceId` ON `${TABLE_NAME}` (`serviceId`)"
-          }
-        ],
-        "foreignKeys": [
-          {
-            "table": "ble_gatt_services",
-            "onDelete": "CASCADE",
-            "onUpdate": "NO ACTION",
-            "columns": [
-              "serviceId"
-            ],
-            "referencedColumns": [
-              "id"
-            ]
-          }
-        ]
-      },
-      {
-        "tableName": "ble_raw_fragments",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `deviceMac` TEXT NOT NULL, `hexData` TEXT NOT NULL, `rssi` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL)",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "deviceMac",
-            "columnName": "deviceMac",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "hexData",
-            "columnName": "hexData",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "rssi",
-            "columnName": "rssi",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "timestamp",
-            "columnName": "timestamp",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": true,
-          "columnNames": [
-            "id"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_ble_raw_fragments_deviceMac",
-            "unique": false,
-            "columnNames": [
-              "deviceMac"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_ble_raw_fragments_deviceMac` ON `${TABLE_NAME}` (`deviceMac`)"
-          },
-          {
-            "name": "index_ble_raw_fragments_timestamp",
-            "unique": false,
-            "columnNames": [
-              "timestamp"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_ble_raw_fragments_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_oui_vendors_oui` ON `${TABLE_NAME}` (`oui`)"
           }
         ],
         "foreignKeys": []
@@ -730,7 +541,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4ed238ca4083d6fc9f4ce583f288d0cb')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '71890442f4a1d94f2308cfe389e6790d')"
     ]
   }
 }

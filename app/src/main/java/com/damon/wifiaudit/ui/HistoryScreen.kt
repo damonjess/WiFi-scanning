@@ -180,7 +180,7 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
                                     selectedDevice = NetworkViewModel.NetworkDevice(
                                         ip = "N/A",
                                         mac = record.bssid,
-                                        vendor = OuiVendorLookup.lookup(record.bssid),
+                                        vendor = record.vendorName ?: OuiVendorLookup.lookup(record.bssid),
                                         vendorInfo = OuiVendorLookup.lookupInfo(record.bssid),
                                         hostname = record.ssid,
                                         source = "History (WiFi)",
@@ -214,7 +214,7 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
                                     selectedDevice = NetworkViewModel.NetworkDevice(
                                         ip = "N/A",
                                         mac = record.macAddress,
-                                        vendor = OuiVendorLookup.lookup(record.macAddress),
+                                        vendor = record.vendorName ?: OuiVendorLookup.lookup(record.macAddress),
                                         vendorInfo = OuiVendorLookup.lookupInfo(record.macAddress),
                                         hostname = record.deviceName,
                                         source = "History (BLE)",
@@ -288,7 +288,7 @@ private fun WifiRecordCard(
     record: WifiSightingRecord,
     onClick: () -> Unit
 ) {
-    val vendor = remember(record.bssid) { OuiVendorLookup.lookup(record.bssid) }
+    val vendor = record.vendorName
     val watchdogMatch = remember(record.ssid, vendor) {
         SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
     }
@@ -362,7 +362,7 @@ private fun BleRecordCard(
     record: BleSightingRecord,
     onClick: () -> Unit
 ) {
-    val vendor = remember(record.macAddress) { OuiVendorLookup.lookup(record.macAddress) }
+    val vendor = record.vendorName
     val watchdogMatch = remember(record.deviceName, vendor) {
         SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
     }
@@ -410,7 +410,7 @@ private fun BleRecordCard(
                         color = Color(0xFF8C9EFF).copy(alpha = 0.15f)
                     ) {
                         Text(
-                            "GATT",
+                            record.primaryGattService ?: "GATT",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color(0xFF8C9EFF),
