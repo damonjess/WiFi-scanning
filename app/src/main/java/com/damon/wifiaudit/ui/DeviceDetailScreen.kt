@@ -1,9 +1,11 @@
 package com.damon.wifiaudit.ui
 
 import android.app.Application
+import android.bluetooth.BluetoothGattCharacteristic
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -20,16 +22,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.damon.wifiaudit.ble.BleUuidResolver
+import com.damon.wifiaudit.ble.LightGattManager
 import com.damon.wifiaudit.ui.theme.*
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import org.osmdroid.util.GeoPoint
@@ -42,24 +49,17 @@ import java.util.*
 fun DeviceDetailScreen(
     macAddress: String,
     deviceType: String, // "WIFI" or "BLE"
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: DeviceDetailViewModel = viewModel(
+        key = macAddress,
+        factory = DeviceDetailViewModelFactory(
+            LocalContext.current.applicationContext as Application,
+            macAddress,
+            deviceType
+        )
+    )
 ) {
     val context = LocalContext.current
-    val viewModel: DeviceDetailViewModel = viewModel(
-        factory = remember(macAddress, deviceType) {
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return DeviceDetailViewModel(
-                        context.applicationContext as Application,
-                        macAddress,
-                        deviceType
-                    ) as T
-                }
-            }
-        }
-    )
-
     val state by viewModel.state.collectAsState()
 
     Scaffold(
@@ -118,16 +118,20 @@ fun DeviceDetailScreen(
                         }
                         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
-                        // Green glow pin
+                        // Green dot pin
                         Box(
                             modifier = Modifier
-                                .size(60.dp)
+                                .size(28.dp)
                                 .align(Alignment.Center)
-                                .background(Color(0xFF76FF03).copy(alpha = 0.3f), CircleShape)
-                                .border(2.dp, Color(0xFF76FF03), CircleShape),
+                                .background(Color(0xFF76FF03).copy(alpha = 0.25f), CircleShape)
+                                .border(1.5.dp, Color(0xFF76FF03), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.Bluetooth, null, tint = Color(0xFF76FF03), modifier = Modifier.size(28.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(Color(0xFF76FF03), CircleShape)
+                            )
                         }
                     } else {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -210,22 +214,89 @@ fun DeviceDetailScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Metadata", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         Spacer(modifier = Modifier.width(12.dp))
-                        Button(
-                            onClick = { },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF2E7D32).copy(alpha = 0.3f),
-                                contentColor = Color(0xFF81C784)
-                            )
-                        ) {
-                            Text("Analyse")
+                        
+                        if (deviceType == "BLE") {
+                            val isAnalysing = state.gattState is LightGattManager.State.Connecting ||
+                                              state.gattState is LightGattManager.State.Discovering
+                            val isConnected = state.gattState is LightGattManager.State.Ready
+
+                            Button(
+                                onClick = { viewModel.analyseDevice() },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = when {
+                                        isConnected -> Color(0xFF2E7D32).copy(alpha = 0.3f)
+                                        isAnalysing -> Color(0xFFFFB300).copy(alpha = 0.2f)
+                                        else -> Color(0xFF2E7D32).copy(alpha = 0.3f)
+                                    },
+                                    contentColor = when {
+                                        isConnected -> Color(0xFF81C784)
+                                        isAnalysing -> Color(0xFFFFB300)
+                                        else -> Color(0xFF81C784)
+                                    }
+                                )
+                            ) {
+                                if (isAnalysing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color(0xFFFFB300),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Analysing...")
+                                } else if (isConnected) {
+                                    Text("Disconnect")
+                                } else {
+                                    Text("Analyse")
+                                }
+                            }
+
+                            // Show "Load saved" if we have historic data but no live connection
+                            if (!isConnected && !isAnalysing && state.hasHistoricGatt) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = { viewModel.loadHistoricGatt() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF8C9EFF).copy(alpha = 0.4f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8C9EFF))
+                                ) {
+                                    Text("Load saved", fontSize = 12.sp)
+                                }
+                            }
                         }
+                    }
+
+                    state.gattError?.let { error ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "⚠️ $error",
+                            fontSize = 12.sp,
+                            color = Color(0xFFFFB74D),
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Expandable sections (empty for now, won't crash)
-                    ExpandableSection("0 services discovered") {}
+                    val services = state.services
+                    val serviceCount = services.size
+
+                    ExpandableSection(
+                        title = "$serviceCount service${if (serviceCount != 1) "s" else ""} discovered",
+                        initiallyExpanded = services.isNotEmpty()
+                    ) {
+                        services.forEach { svc ->
+                            ServiceCard(svc)
+                        }
+                        if (services.isEmpty() && state.gattState is LightGattManager.State.Disconnected) {
+                            Text(
+                                "Tap Analyse to connect and discover services",
+                                color = TextMuted,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
                     ExpandableSection("0 raw data fragments") {}
 
                     DetailField("Detect count", state.detectCount.toString())
@@ -260,13 +331,18 @@ private fun DetailField(label: String, value: String, modifier: Modifier = Modif
 }
 
 @Composable
-private fun ExpandableSection(title: String, content: @Composable () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+private fun ExpandableSection(
+    title: String,
+    initiallyExpanded: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    var expanded by remember(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp),
+                .padding(vertical = 12.dp)
+                .clickable { expanded = !expanded },
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -281,6 +357,182 @@ private fun ExpandableSection(title: String, content: @Composable () -> Unit) {
     }
 }
 
+@Composable
+private fun ServiceCard(service: LightGattManager.BleService) {
+    val context = BleUuidResolver.serviceContext(service.uuid)
+    val isStandard = remember(service.uuid) { BleUuidResolver.isStandardUuid(service.uuid) }
+    val shortForm = remember(service.uuid) { BleUuidResolver.fullShortForm(service.uuid) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkBackground.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, DarkSurfaceElevated)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Service header
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when (context?.threatLevel) {
+                                BleUuidResolver.ThreatLevel.CRITICAL -> Color(0xFFFF1744)
+                                BleUuidResolver.ThreatLevel.HIGH -> Color(0xFFFF5252)
+                                BleUuidResolver.ThreatLevel.MEDIUM -> Color(0xFFFFB300)
+                                BleUuidResolver.ThreatLevel.LOW -> Color(0xFF76FF03)
+                                else -> Color(0xFF8C9EFF)
+                            }
+                        )
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = buildAnnotatedString {
+                            if (context != null) {
+                                append(context.icon + " ")
+                            }
+                            append(BleUuidResolver.serviceName(service.uuid))
+                        },
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    // Wardriving context
+                    context?.let {
+                        Text(
+                            it.description,
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isStandard) Color(0xFF8C9EFF).copy(alpha = 0.1f) else Color(0xFF76FF03).copy(alpha = 0.1f)
+                ) {
+                    Text(
+                        shortForm,
+                        fontSize = 12.sp,
+                        color = if (isStandard) Color(0xFF8C9EFF) else Color(0xFF76FF03),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // Characteristics
+            if (service.characteristics.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                service.characteristics.forEach { char ->
+                    CharRow(char)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CharRow(char: LightGattManager.BleCharacteristic) {
+    val ctx = BleUuidResolver.characteristicContext(char.uuid)
+    val name = BleUuidResolver.characteristicName(char.uuid)
+    val isStandard = BleUuidResolver.isStandardUuid(char.uuid)
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 18.dp, top = 3.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text("├─", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    buildAnnotatedString {
+                        if (ctx != null) append(ctx.icon + " ")
+                        append(name)
+                    },
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.85f)
+                )
+            }
+            // Only show UUID if it's non-standard (hides clutter)
+            if (!isStandard) {
+                Text(
+                    char.uuid.toString(),
+                    fontSize = 9.sp,
+                    color = TextMuted.copy(alpha = 0.6f),
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            
+            // Show read value if available
+            char.value?.let { valStr ->
+                if (valStr.isNotBlank()) {
+                    Text(
+                        valStr,
+                        fontSize = 12.sp,
+                        color = Color(0xFF8C9EFF),
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            if (char.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) {
+                PropertyBadge("R", Color(0xFF81C784))
+            }
+            if (char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
+                PropertyBadge("W", Color(0xFF64B5F6))
+            }
+            if (char.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) {
+                PropertyBadge("N", Color(0xFFFFB74D))
+            }
+            if (char.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) {
+                PropertyBadge("I", Color(0xFFCE93D8))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PropertyBadge(label: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = color.copy(alpha = 0.15f)
+    ) {
+        Text(
+            label,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = color,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+        )
+    }
+}
+
 private fun formatDate(millis: Long): String {
     return SimpleDateFormat("d MMM yyyy, HH:mm:ss", Locale.getDefault()).format(Date(millis))
+}
+
+class DeviceDetailViewModelFactory(
+    private val app: Application,
+    private val mac: String,
+    private val type: String
+) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        return DeviceDetailViewModel(app, mac, type) as T
+    }
 }

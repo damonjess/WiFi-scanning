@@ -48,3 +48,20 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS ble_gatt_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                macAddress TEXT NOT NULL,
+                deviceName TEXT,
+                servicesJson TEXT NOT NULL,
+                serviceCount INTEGER NOT NULL,
+                characteristicCount INTEGER NOT NULL,
+                timestamp INTEGER NOT NULL
+            )
+        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_gatt_mac ON ble_gatt_snapshots(macAddress)")
+    }
+}
+

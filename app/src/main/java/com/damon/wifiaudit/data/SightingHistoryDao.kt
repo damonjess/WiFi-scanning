@@ -29,7 +29,8 @@ data class BleSightingRecord(
     val deviceModel: String?,
     val latitude: Double,
     val longitude: Double,
-    val timestamp: Long
+    val timestamp: Long,
+    val hasGatt: Boolean = false
 )
 
 @Dao
@@ -46,7 +47,8 @@ interface SightingHistoryDao {
 
     @Query("""
         SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
-               l.latitude, l.longitude, l.timestamp
+               l.latitude, l.longitude, l.timestamp,
+               ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
         FROM ble_sightings b
         INNER JOIN location_fixes l ON b.locationId = l.id
         ORDER BY l.timestamp DESC
@@ -73,7 +75,8 @@ interface SightingHistoryDao {
 
     @Query("""
         SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
-               l.latitude, l.longitude, MAX(l.timestamp) as timestamp
+               l.latitude, l.longitude, MAX(l.timestamp) as timestamp,
+               ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
         FROM ble_sightings b
         INNER JOIN location_fixes l ON b.locationId = l.id
         WHERE (:query = '' OR b.deviceName LIKE '%' || :query || '%' OR b.macAddress LIKE '%' || :query || '%')

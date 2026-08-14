@@ -404,6 +404,20 @@ private fun BleRecordCard(
             ChipFlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (record.hasGatt) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF8C9EFF).copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            "GATT",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF8C9EFF),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
                 if (record.deviceModel != null) {
                     InfoChip(text = record.deviceModel, color = CyanAccent, outlined = true)
                 }

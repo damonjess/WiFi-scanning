@@ -16,7 +16,8 @@ interface BleSightingDao {
 
     @Query("""
         SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
-               l.latitude, l.longitude, l.timestamp
+               l.latitude, l.longitude, l.timestamp,
+               ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
         FROM ble_sightings b
         INNER JOIN location_fixes l ON b.locationId = l.id
         WHERE b.macAddress = :mac

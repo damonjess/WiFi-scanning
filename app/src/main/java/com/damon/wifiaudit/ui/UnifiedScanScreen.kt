@@ -175,9 +175,19 @@ private fun BleDeviceRow(
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(device.deviceName ?: "Unknown", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                if (vendor != null) {
+                
+                val companyFromAdv = device.manufacturerFromAdv
+                if (companyFromAdv != null) {
+                    Text(
+                        "📡 $companyFromAdv",
+                        fontSize = 12.sp,
+                        color = Color(0xFF8C9EFF),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                } else if (vendor != null) {
                     Text(vendor, fontSize = 14.sp, color = TextMuted, modifier = Modifier.padding(top = 2.dp))
                 }
+                
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(device.macAddress, fontSize = 14.sp, color = Color.White, fontFamily = FontFamily.Monospace)

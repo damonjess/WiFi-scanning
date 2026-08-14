@@ -4,15 +4,18 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.damon.wifiaudit.data.dao.BleGattSnapshotDao
+import com.damon.wifiaudit.data.entity.BleGattSnapshot
 import net.sqlcipher.database.SQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 
 @Database(
     entities = [
         ApScanEntity::class, LocationFix::class, WifiSighting::class,
-        BleSighting::class, ScanSession::class, ApiQueueItem::class
+        BleSighting::class, ScanSession::class, ApiQueueItem::class,
+        BleGattSnapshot::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun sightingHistoryDao(): SightingHistoryDao
     abstract fun scanSessionDao(): ScanSessionDao
     abstract fun apiQueueDao(): ApiQueueDao
+    abstract fun bleGattSnapshotDao(): BleGattSnapshotDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -39,7 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "wifi_audit_encrypted.db"
                 )
                     .openHelperFactory(factory)
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { INSTANCE = it }
             }
