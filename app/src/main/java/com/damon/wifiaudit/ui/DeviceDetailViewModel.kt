@@ -31,8 +31,11 @@ class DeviceDetailViewModel(
     private val type: String
 ) : AndroidViewModel(app) {
 
-    private val db = AppDatabase.getInstance(app)
-    val database: AppDatabase get() = db
+    val db = AppDatabase.getInstance(app)
+
+    // Classification (placeholder for future implementation)
+    private val _classification = MutableStateFlow<String?>(null)
+    val classification: StateFlow<String?> = _classification.asStateFlow()
 
     // Heatmap collection
     private val _heatmapEnabled = MutableStateFlow(false)
