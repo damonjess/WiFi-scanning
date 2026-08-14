@@ -37,6 +37,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _showTrack = MutableStateFlow(true)
     val showTrack: StateFlow<Boolean> = _showTrack.asStateFlow()
 
+    private val _showHeatmap = MutableStateFlow(false)
+    val showHeatmap: StateFlow<Boolean> = _showHeatmap.asStateFlow()
+
     fun selectSession(sessionId: Long?) {
         _selectedSessionId.value = sessionId
         loadSessionData(sessionId)
@@ -44,6 +47,10 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleTrack() {
         _showTrack.value = !_showTrack.value
+    }
+
+    fun setHeatmap(enabled: Boolean) {
+        _showHeatmap.value = enabled
     }
 
     fun refresh() {

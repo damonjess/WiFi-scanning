@@ -16,10 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.damon.wifiaudit.map.OsmConfig
 import com.damon.wifiaudit.map.SightingMapScreen
-import com.damon.wifiaudit.ui.HistoryScreen
-import com.damon.wifiaudit.ui.MainScanScreen
-import com.damon.wifiaudit.ui.NetworkScannerScreen
-import com.damon.wifiaudit.ui.PermissionGateScreen
+import com.damon.wifiaudit.ui.*
 import com.damon.wifiaudit.ui.theme.WiFiAuditTheme
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import kotlinx.coroutines.launch
@@ -44,43 +41,51 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppRoot() {
     var selectedIndex by remember { mutableStateOf(0) }
+    var selectedDeviceMac by remember { mutableStateOf<String?>(null) }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = selectedIndex == 0,
-                    onClick = { selectedIndex = 0 },
-                    icon = { Icon(Icons.Default.Radar, contentDescription = null) },
-                    label = { Text("Scan") }
-                )
-                NavigationBarItem(
-                    selected = selectedIndex == 1,
-                    onClick = { selectedIndex = 1 },
-                    icon = { Icon(Icons.Default.History, contentDescription = null) },
-                    label = { Text("History") }
-                )
-                NavigationBarItem(
-                    selected = selectedIndex == 2,
-                    onClick = { selectedIndex = 2 },
-                    icon = { Icon(Icons.Default.Lan, contentDescription = null) },
-                    label = { Text("Network") }
-                )
-                NavigationBarItem(
-                    selected = selectedIndex == 3,
-                    onClick = { selectedIndex = 3 },
-                    icon = { Icon(Icons.Default.Map, contentDescription = null) },
-                    label = { Text("Map") }
-                )
+    if (selectedDeviceMac != null) {
+        DeviceDetailScreen(
+            macAddress = selectedDeviceMac!!,
+            onBack = { selectedDeviceMac = null }
+        )
+    } else {
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedIndex == 0,
+                        onClick = { selectedIndex = 0 },
+                        icon = { Icon(Icons.Default.Radar, contentDescription = null) },
+                        label = { Text("Radar") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedIndex == 1,
+                        onClick = { selectedIndex = 1 },
+                        icon = { Icon(Icons.Default.History, contentDescription = null) },
+                        label = { Text("History") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedIndex == 2,
+                        onClick = { selectedIndex = 2 },
+                        icon = { Icon(Icons.Default.Lan, contentDescription = null) },
+                        label = { Text("Network") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedIndex == 3,
+                        onClick = { selectedIndex = 3 },
+                        icon = { Icon(Icons.Default.Map, contentDescription = null) },
+                        label = { Text("Map") }
+                    )
+                }
             }
-        }
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            when (selectedIndex) {
-                0 -> MainScanScreen()
-                1 -> HistoryScreen()
-                2 -> NetworkScannerScreen()
-                3 -> SightingMapScreen()
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding)) {
+                when (selectedIndex) {
+                    0 -> BleRadarScreen(onDeviceClick = { selectedDeviceMac = it.macAddress })
+                    1 -> HistoryScreen()
+                    2 -> NetworkScannerScreen()
+                    3 -> SightingMapScreen()
+                }
             }
         }
     }

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.graphics.toColorInt
 import com.damon.wifiaudit.ui.theme.*
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
@@ -83,24 +84,24 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
     LaunchedEffect(wifiPoints, blePoints, trackPoints, showTrack) {
         mapView.overlays.removeAll { it !is MyLocationNewOverlay }
 
-        val wifiIcon = createCircleMarker(AndroidColor.parseColor("#00E5FF"), 50)
-        val bleIcon = createCircleMarker(AndroidColor.parseColor("#FF00E5"), 50)
-        val warningIcon = createCircleMarker(AndroidColor.parseColor("#FF5252"), 60)
+        val wifiIcon = createCircleMarker("#00E5FF".toColorInt(), 50)
+        val bleIcon = createCircleMarker("#FF00E5".toColorInt(), 50)
+        val warningIcon = createCircleMarker("#FF5252".toColorInt(), 60)
 
         val wifiClusterer = RadiusMarkerClusterer(context).apply {
-            setIcon(createCircleMarker(AndroidColor.parseColor("#00E5FF"), 80, true))
+            setIcon(createCircleMarker("#00E5FF".toColorInt(), 80, true))
             setRadius(120)
             textPaint.textSize = 32f
             textPaint.color = AndroidColor.WHITE
         }
         val bleClusterer = RadiusMarkerClusterer(context).apply {
-            setIcon(createCircleMarker(AndroidColor.parseColor("#FF00E5"), 80, true))
+            setIcon(createCircleMarker("#FF00E5".toColorInt(), 80, true))
             setRadius(120)
             textPaint.textSize = 32f
             textPaint.color = AndroidColor.WHITE
         }
         val watchdogClusterer = RadiusMarkerClusterer(context).apply {
-            setIcon(createCircleMarker(AndroidColor.parseColor("#FF5252"), 90, true))
+            setIcon(createCircleMarker("#FF5252".toColorInt(), 90, true))
             setRadius(120)
             textPaint.textSize = 32f
             textPaint.color = AndroidColor.WHITE
@@ -297,19 +298,26 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         }
 
         // Bottom legend
-        if (wifiPoints.isNotEmpty() || blePoints.isNotEmpty()) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = DarkSurface.copy(alpha = 0.95f),
-                border = BorderStroke(1.dp, DarkSurfaceElevated)
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(16.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = DarkSurface.copy(alpha = 0.9f),
+            border = BorderStroke(1.dp, DarkSurfaceElevated)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
+                Text(
+                    text = "MAP KEY",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextMuted,
+                    letterSpacing = 1.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     LegendItem(color = CyanAccent, label = "WiFi")
                     LegendItem(color = MagentaAccent, label = "BLE")
                     LegendItem(color = Color(0xFFFF5252), label = "Alert")
