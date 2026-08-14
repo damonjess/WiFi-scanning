@@ -1,22 +1,34 @@
 package com.damon.wifiaudit.map
 
-import android.graphics.Color
+import android.graphics.Color as AndroidColor
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import com.damon.wifiaudit.data.SessionSummary
-import com.damon.wifiaudit.vendor.OuiVendorLookup
-import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.damon.wifiaudit.ui.theme.*
+import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import org.osmdroid.bonuspack.clustering.RadiusMarkerClusterer
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -37,9 +49,7 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
     val sessions by viewModel.sessions.collectAsState()
     val selectedSessionId by viewModel.selectedSessionId.collectAsState()
 
-    LaunchedEffect(Unit) {
-        viewModel.refresh()
-    }
+    LaunchedEffect(Unit) { viewModel.refresh() }
 
     val locationOverlay = remember {
         MyLocationNewOverlay(GpsMyLocationProvider(context), MapView(context)).apply {
@@ -55,10 +65,7 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
             minZoomLevel = 3.0
             maxZoomLevel = 20.0
             controller.setZoom(16.0)
-            
-            // Set a default center if no data yet (e.g. London)
             controller.setCenter(GeoPoint(51.5074, -0.1278))
-            
             overlays.add(locationOverlay)
         }
     }
@@ -73,65 +80,30 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         }
     }
 
-    // Long-lived route overlay — avoid recreating Polyline on every marker refresh
-    val routePolyline = remember {
-        Polyline().apply {
-            outlinePaint.color = Color.CYAN
-            outlinePaint.strokeWidth = 8f
-            outlinePaint.isAntiAlias = true
-        }
-    }
+    LaunchedEffect(wifiPoints, blePoints, trackPoints, showTrack) {
+        mapView.overlays.removeAll { it !is MyLocationNewOverlay }
 
-    // --- ROUTE only (trackPoints / showTrack) ---
-    LaunchedEffect(trackPoints, showTrack) {
-        mapView.overlays.remove(routePolyline)
+        val wifiIcon = createCircleMarker(AndroidColor.parseColor("#00E5FF"), 50)
+        val bleIcon = createCircleMarker(AndroidColor.parseColor("#FF00E5"), 50)
+        val warningIcon = createCircleMarker(AndroidColor.parseColor("#FF5252"), 60)
 
-        if (showTrack && trackPoints.size >= 2) {
-            val simplified = simplifyTrack(
-                trackPoints.map { GeoPoint(it.latitude, it.longitude) },
-                toleranceMeters = 10.0
-            )
-            routePolyline.setPoints(simplified)
-            // Index 0 = under markers so pins stay clickable
-            mapView.overlays.add(0, routePolyline)
-        }
-        mapView.invalidate()
-    }
-
-    // --- MARKERS only (wifi / ble) ---
-    LaunchedEffect(wifiPoints, blePoints) {
-        android.util.Log.d(
-            "MapScreen",
-            "Refreshing markers: ${wifiPoints.size} WiFi, ${blePoints.size} BLE"
-        )
-
-        // Clear everything except my-location and the route polyline
-        mapView.overlays.removeAll {
-            it !is MyLocationNewOverlay && it !== routePolyline
-        }
-
-        val wifiIcon = createCircleMarker(Color.BLUE, 50)
-        val bleIcon = createCircleMarker(Color.MAGENTA, 50)
-        val warningIcon = createCircleMarker(Color.RED, 60)
-
-        // Clusterers for different types with increased radius for dense areas
         val wifiClusterer = RadiusMarkerClusterer(context).apply {
-            setIcon(createCircleMarker(Color.BLUE, 80, true))
-            setRadius(120) // Increased from 80
+            setIcon(createCircleMarker(AndroidColor.parseColor("#00E5FF"), 80, true))
+            setRadius(120)
             textPaint.textSize = 32f
-            textPaint.color = Color.WHITE
+            textPaint.color = AndroidColor.WHITE
         }
         val bleClusterer = RadiusMarkerClusterer(context).apply {
-            setIcon(createCircleMarker(Color.MAGENTA, 80, true))
-            setRadius(120) // Increased from 80
+            setIcon(createCircleMarker(AndroidColor.parseColor("#FF00E5"), 80, true))
+            setRadius(120)
             textPaint.textSize = 32f
-            textPaint.color = Color.WHITE
+            textPaint.color = AndroidColor.WHITE
         }
         val watchdogClusterer = RadiusMarkerClusterer(context).apply {
-            setIcon(createCircleMarker(Color.RED, 90, true))
-            setRadius(120) // Increased from 80
+            setIcon(createCircleMarker(AndroidColor.parseColor("#FF5252"), 90, true))
+            setRadius(120)
             textPaint.textSize = 32f
-            textPaint.color = Color.WHITE
+            textPaint.color = AndroidColor.WHITE
         }
 
         val allPoints = mutableListOf<GeoPoint>()
@@ -140,22 +112,16 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         wifiPoints.forEach { record ->
             val vendor = OuiVendorLookup.lookup(record.bssid)
             val match = SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
-
-            // Add a tiny bit of jitter (approx 1-2 meters) to prevent perfect stacking
             val latJitter = (random.nextDouble() - 0.5) * 0.00002
             val lonJitter = (random.nextDouble() - 0.5) * 0.00002
             val geo = GeoPoint(record.latitude + latJitter, record.longitude + lonJitter)
-
             allPoints.add(geo)
 
             val marker = Marker(mapView).apply {
                 position = geo
                 title = if (match != null) "⚠ ${match.category.label}: ${record.ssid}" else "WiFi: ${record.ssid}"
                 snippet = "${record.bssid} • ${record.encryption} • ${record.rssi} dBm"
-                icon = android.graphics.drawable.BitmapDrawable(
-                    context.resources,
-                    if (match != null) warningIcon else wifiIcon
-                )
+                icon = android.graphics.drawable.BitmapDrawable(context.resources, if (match != null) warningIcon else wifiIcon)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             }
             if (match != null) watchdogClusterer.add(marker) else wifiClusterer.add(marker)
@@ -164,182 +130,274 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         blePoints.forEach { record ->
             val vendor = OuiVendorLookup.lookup(record.macAddress)
             val match = SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
-
-            // Tiny jitter for BLE as well
             val latJitter = (random.nextDouble() - 0.5) * 0.00002
             val lonJitter = (random.nextDouble() - 0.5) * 0.00002
             val geo = GeoPoint(record.latitude + latJitter, record.longitude + lonJitter)
-
             allPoints.add(geo)
 
             val marker = Marker(mapView).apply {
                 position = geo
                 title = if (match != null) "⚠ ${match.category.label}: ${record.deviceName ?: record.macAddress}" else "BLE: ${record.deviceName ?: record.macAddress}"
                 snippet = "${record.macAddress} • ${record.rssi} dBm"
-                icon = android.graphics.drawable.BitmapDrawable(
-                    context.resources,
-                    if (match != null) warningIcon else bleIcon
-                )
+                icon = android.graphics.drawable.BitmapDrawable(context.resources, if (match != null) warningIcon else bleIcon)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             }
             if (match != null) watchdogClusterer.add(marker) else bleClusterer.add(marker)
+        }
+
+        if (showTrack && trackPoints.size >= 2) {
+            val polyline = Polyline(mapView).apply {
+                setPoints(trackPoints.map { GeoPoint(it.latitude, it.longitude) })
+                outlinePaint.color = AndroidColor.parseColor("#00E5FF")
+                outlinePaint.alpha = 120
+                outlinePaint.strokeWidth = 6f
+            }
+            mapView.overlays.add(0, polyline)
         }
 
         if (!wifiClusterer.items.isEmpty()) mapView.overlays.add(wifiClusterer)
         if (!bleClusterer.items.isEmpty()) mapView.overlays.add(bleClusterer)
         if (!watchdogClusterer.items.isEmpty()) mapView.overlays.add(watchdogClusterer)
 
-        // Fit camera to markers (and route if visible)
-        val fitPoints = allPoints.toMutableList()
-        if (showTrack && trackPoints.size >= 2) {
-            simplifyTrack(
-                trackPoints.map { GeoPoint(it.latitude, it.longitude) },
-                toleranceMeters = 10.0
-            ).forEach { fitPoints.add(it) }
-        }
-
-        if (fitPoints.isNotEmpty()) {
-            if (fitPoints.size == 1) {
+        if (allPoints.isNotEmpty()) {
+            if (allPoints.size == 1) {
                 mapView.controller.setZoom(17.0)
-                mapView.controller.animateTo(fitPoints.first())
+                mapView.controller.animateTo(allPoints.first())
             } else {
-                val box = BoundingBox.fromGeoPoints(fitPoints)
-                mapView.post {
-                    mapView.zoomToBoundingBox(box, true, 100)
-                }
+                val box = BoundingBox.fromGeoPoints(allPoints)
+                mapView.post { mapView.zoomToBoundingBox(box, true, 100) }
             }
         }
 
         mapView.invalidate()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
         AndroidView(
             factory = { mapView },
-            modifier = Modifier.fillMaxSize(),
-            update = { 
-                // MapView state is mostly handled by LaunchedEffect(wifiPoints...)
-                // but we could trigger invalidation here if needed
-            }
+            modifier = Modifier.fillMaxSize()
         )
 
+        // Dark overlay vignette at top for readability
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(DarkBackground.copy(alpha = 0.9f), Color.Transparent)
+                    )
+                )
+                .align(Alignment.TopCenter)
+        )
+
+        // Top controls
         Column(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(12.dp),
-            horizontalAlignment = Alignment.End
+                .align(Alignment.TopCenter)
+                .padding(16.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             var expanded by remember { mutableStateOf(false) }
             val selectedSession = sessions.find { it.id == selectedSessionId }
-            val label = selectedSession?.let { formatSessionLabel(it) } ?: "Select Session"
 
-            FilterChip(
-                selected = false,
+            // Session selector
+            Surface(
                 onClick = { expanded = true },
-                label = { Text(label) }
-            )
-
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                sessions.forEach { session ->
-                    DropdownMenuItem(
-                        text = { Text(formatSessionLabel(session)) },
-                        onClick = {
-                            viewModel.selectSession(session.id)
-                            expanded = false
-                        }
+                shape = RoundedCornerShape(12.dp),
+                color = DarkSurface.copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, DarkSurfaceElevated),
+                modifier = Modifier.wrapContentWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        tint = CyanAccent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = selectedSession?.let { formatSessionLabel(it) } ?: "Select Session",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "▼",
+                        fontSize = 10.sp,
+                        color = TextMuted
                     )
                 }
             }
 
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .background(DarkSurface)
+                    .border(1.dp, DarkSurfaceElevated, RoundedCornerShape(8.dp))
+            ) {
+                sessions.forEach { session ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                formatSessionLabel(session),
+                                color = Color.White,
+                                fontSize = 13.sp
+                            )
+                        },
+                        onClick = {
+                            viewModel.selectSession(session.id)
+                            expanded = false
+                        },
+                        colors = MenuDefaults.itemColors(textColor = Color.White)
+                    )
+                }
+            }
+        }
+
+        // Right-side floating controls
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 80.dp, end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             if (trackPoints.size >= 2) {
-                Spacer(modifier = Modifier.height(8.dp))
-                FilterChip(
-                    selected = showTrack,
-                    onClick = { viewModel.toggleTrack() },
-                    label = { Text("Route") },
-                    leadingIcon = { Icon(Icons.Default.Timeline, contentDescription = null) }
+                MapControlButton(
+                    icon = Icons.Default.Timeline,
+                    isActive = showTrack,
+                    onClick = { viewModel.toggleTrack() }
                 )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            IconButton(
+            MapControlButton(
+                icon = Icons.Default.MyLocation,
+                isActive = false,
                 onClick = {
                     val myLoc = locationOverlay.myLocation
                     if (myLoc != null) {
                         mapView.controller.animateTo(myLoc)
                         mapView.controller.setZoom(18.0)
                     } else {
-                        // Fallback to scan snapshot if overlay hasn't fixed yet
                         val currentSnapshot = viewModel.currentSnapshot.value
                         if (currentSnapshot.latitude != null && currentSnapshot.longitude != null) {
-                            val geo = GeoPoint(currentSnapshot.latitude, currentSnapshot.longitude)
-                            mapView.controller.animateTo(geo)
+                            mapView.controller.animateTo(
+                                GeoPoint(currentSnapshot.latitude, currentSnapshot.longitude)
+                            )
                             mapView.controller.setZoom(18.0)
                         }
                     }
-                },
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                }
+            )
+        }
+
+        // Bottom legend
+        if (wifiPoints.isNotEmpty() || blePoints.isNotEmpty()) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = DarkSurface.copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, DarkSurfaceElevated)
             ) {
-                Icon(Icons.Default.MyLocation, contentDescription = "Center on my location")
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    LegendItem(color = CyanAccent, label = "WiFi")
+                    LegendItem(color = MagentaAccent, label = "BLE")
+                    LegendItem(color = Color(0xFFFF5252), label = "Alert")
+                }
             }
         }
 
+        // Empty state
         if (wifiPoints.isEmpty() && blePoints.isEmpty()) {
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    imageVector = Icons.Default.Radar,
+                    imageVector = Icons.Default.LocationOn,
                     contentDescription = null,
-                    modifier = Modifier.size(80.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                    modifier = Modifier
+                        .size(64.dp)
+                        .alpha(0.2f),
+                    tint = TextMuted
                 )
-                Spacer(Modifier.height(16.dp))
-                Text("No sightings yet", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    "Start a wardriving scan to populate the map",
+                    "No sightings yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+                Text(
+                    "Run a wardriving scan to populate the map",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = TextMuted
                 )
             }
         }
     }
 }
 
-/**
- * Drops intermediate points closer than [toleranceMeters] to the last kept point.
- * Always keeps first and last. Good enough for driving tracks; cheap O(n).
- */
-private fun simplifyTrack(
-    points: List<GeoPoint>,
-    toleranceMeters: Double = 10.0
-): List<GeoPoint> {
-    if (points.size < 3) return points
-    val out = ArrayList<GeoPoint>(points.size / 4 + 2)
-    out.add(points.first())
-    var last = points.first()
-    for (i in 1 until points.lastIndex) {
-        val p = points[i]
-        if (last.distanceToAsDouble(p) >= toleranceMeters) {
-            out.add(p)
-            last = p
+@Composable
+private fun MapControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isActive) CyanAccent.copy(alpha = 0.2f) else DarkSurface.copy(alpha = 0.95f),
+        border = BorderStroke(
+            1.dp,
+            if (isActive) CyanAccent.copy(alpha = 0.4f) else DarkSurfaceElevated
+        ),
+        modifier = Modifier.size(44.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isActive) CyanAccent else Color.White,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
-    out.add(points.last())
-    return out
+}
+
+@Composable
+private fun LegendItem(color: Color, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextMuted
+        )
+    }
 }
 
 private fun formatSessionLabel(s: com.damon.wifiaudit.data.SessionSummary): String {
     val sdf = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
-    return "${sdf.format(java.util.Date(s.startTime))} • ${s.wifiCount + s.bleCount} sightings"
-}
-
-private fun formatTime(millis: Long): String {
-    val sdf = java.text.SimpleDateFormat("MMM d, HH:mm:ss", java.util.Locale.getDefault())
-    return sdf.format(java.util.Date(millis))
+    return "${sdf.format(java.util.Date(s.startTime))} • ${s.wifiCount + s.bleCount} pts"
 }
 
 private fun createCircleMarker(color: Int, size: Int = 40, isCluster: Boolean = false): android.graphics.Bitmap {
@@ -353,7 +411,7 @@ private fun createCircleMarker(color: Int, size: Int = 40, isCluster: Boolean = 
     canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
     
     // Add a border
-    paint.color = Color.WHITE
+    paint.color = android.graphics.Color.WHITE
     paint.style = android.graphics.Paint.Style.STROKE
     paint.strokeWidth = if (isCluster) 6f else 4f
     canvas.drawCircle(size / 2f, size / 2f, (size / 2f) - (paint.strokeWidth / 2f), paint)
