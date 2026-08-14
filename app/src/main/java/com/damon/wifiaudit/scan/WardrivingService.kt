@@ -40,6 +40,7 @@ class WardrivingService : Service() {
     private var currentSessionId: Long = -1L
     @Volatile private var lastKnownLocation: Location? = null
     private var lastCommittedLocation: Location? = null
+    private var lastCommitTimestamp: Long = 0L
     private val bleDeviceMap = mutableMapOf<String, BleDeviceInfo>()
     private val alertedDevices = mutableSetOf<String>()
 
@@ -197,9 +198,13 @@ class WardrivingService : Service() {
                 if (snapshot.wifiResults.isEmpty() && snapshot.bleDevices.isEmpty()) continue
                 if (currentSessionId < 0) continue
 
-                // 50m Distance Filter: Only commit if we've moved significantly
+                // Commit filter: 15m distance OR 30s timeout
                 val lastLoc = lastCommittedLocation
-                if (lastLoc != null && loc.distanceTo(lastLoc) < 50f) {
+                val timeSinceLastCommit = System.currentTimeMillis() - lastCommitTimestamp
+                val movedEnough = lastLoc == null || loc.distanceTo(lastLoc) >= 15f
+                val timedOut = timeSinceLastCommit >= 30_000L
+
+                if (!movedEnough && !timedOut) {
                     continue
                 }
 
@@ -229,6 +234,7 @@ class WardrivingService : Service() {
                 )
                 UploadWorker.enqueue(applicationContext)
                 lastCommittedLocation = loc
+                lastCommitTimestamp = System.currentTimeMillis()
                 
                 ScanStatusRepository.markCommitted()
                 ScanStatusRepository.clearWifiResults()
@@ -271,18 +277,12 @@ class WardrivingService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(locationCallback)
-        bluetoothManager?.adapter?.bluetoothLeScanner?.let {
-            try { it.stopScan(bleScanCallback) } catch (e: SecurityException) {}
-        }
-        unregisterReceiver(wifiReceiver)
-
-        // Flush whatever's still buffered before the service dies
         val snapshot = ScanStatusRepository.snapshot.value
         val loc = lastKnownLocation
-        if (loc != null && currentSessionId >= 0 && (snapshot.wifiResults.isNotEmpty() || snapshot.bleDevices.isNotEmpty())) {
-            runBlocking {
+        
+        val flushJob = serviceScope.launch {
+            // Final flush on stop
+            if (loc != null && currentSessionId >= 0 && (snapshot.wifiResults.isNotEmpty() || snapshot.bleDevices.isNotEmpty())) {
                 android.util.Log.d("WardrivingService", "Final flush on stop: ${snapshot.wifiResults.size} WiFi, ${snapshot.bleDevices.size} BLE")
                 coordinator.commitCycle(
                     sessionId = currentSessionId,
@@ -294,15 +294,25 @@ class WardrivingService : Service() {
                 )
                 UploadWorker.enqueue(applicationContext)
             }
-        }
 
-        if (currentSessionId >= 0) {
-            runBlocking {
+            if (currentSessionId >= 0) {
                 coordinator.repository.endSession(currentSessionId)
             }
         }
 
+        // Graceful cleanup: wait a bit for flush, but don't block forever
+        runBlocking {
+            withTimeoutOrNull(500) { flushJob.join() }
+        }
+
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+        bluetoothManager?.adapter?.bluetoothLeScanner?.let {
+            try { it.stopScan(bleScanCallback) } catch (e: SecurityException) {}
+        }
+        unregisterReceiver(wifiReceiver)
+
         serviceScope.cancel()
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -75,54 +77,68 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
         Spacer(modifier = Modifier.height(8.dp))
 
         if (selectedTab == HistoryTab.WIFI) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(wifiItems.itemCount, key = wifiItems.itemKey { it.id }) { index ->
-                    wifiItems[index]?.let { record ->
-                        WifiRecordCard(
-                            record = record,
-                            onClick = {
-                                selectedDevice = NetworkViewModel.NetworkDevice(
-                                    ip = "N/A",
-                                    mac = record.bssid,
-                                    vendor = OuiVendorLookup.lookup(record.bssid),
-                                    vendorInfo = OuiVendorLookup.lookupInfo(record.bssid),
-                                    hostname = record.ssid,
-                                    source = "History (WiFi)",
-                                    openPorts = emptyList(),
-                                    securityMatches = emptyList()
-                                )
-                            }
-                        )
+            if (wifiItems.itemCount == 0) {
+                EmptyHistoryState(
+                    title = "No Wi-Fi sightings",
+                    description = if (query.isNotEmpty()) "No results match your search" else "Start scanning to collect Wi-Fi data"
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(wifiItems.itemCount, key = wifiItems.itemKey { it.id }) { index ->
+                        wifiItems[index]?.let { record ->
+                            WifiRecordCard(
+                                record = record,
+                                onClick = {
+                                    selectedDevice = NetworkViewModel.NetworkDevice(
+                                        ip = "N/A",
+                                        mac = record.bssid,
+                                        vendor = OuiVendorLookup.lookup(record.bssid),
+                                        vendorInfo = OuiVendorLookup.lookupInfo(record.bssid),
+                                        hostname = record.ssid,
+                                        source = "History (WiFi)",
+                                        openPorts = emptyList(),
+                                        securityMatches = emptyList()
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(bleItems.itemCount, key = bleItems.itemKey { it.id }) { index ->
-                    bleItems[index]?.let { record ->
-                        BleRecordCard(
-                            record = record,
-                            onClick = {
-                                selectedDevice = NetworkViewModel.NetworkDevice(
-                                    ip = "N/A",
-                                    mac = record.macAddress,
-                                    vendor = OuiVendorLookup.lookup(record.macAddress),
-                                    vendorInfo = OuiVendorLookup.lookupInfo(record.macAddress),
-                                    hostname = record.deviceName,
-                                    source = "History (BLE)",
-                                    openPorts = emptyList(),
-                                    securityMatches = emptyList()
-                                )
-                            }
-                        )
+            if (bleItems.itemCount == 0) {
+                EmptyHistoryState(
+                    title = "No BLE sightings",
+                    description = if (query.isNotEmpty()) "No results match your search" else "Start scanning to collect BLE data"
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(bleItems.itemCount, key = bleItems.itemKey { it.id }) { index ->
+                        bleItems[index]?.let { record ->
+                            BleRecordCard(
+                                record = record,
+                                onClick = {
+                                    selectedDevice = NetworkViewModel.NetworkDevice(
+                                        ip = "N/A",
+                                        mac = record.macAddress,
+                                        vendor = OuiVendorLookup.lookup(record.macAddress),
+                                        vendorInfo = OuiVendorLookup.lookupInfo(record.macAddress),
+                                        hostname = record.deviceName,
+                                        source = "History (BLE)",
+                                        openPorts = emptyList(),
+                                        securityMatches = emptyList()
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -246,6 +262,27 @@ private fun BleRecordCard(
             Text(
                 "${dateFormat.format(Date(record.timestamp))}  •  ${"%.5f".format(record.latitude)}, ${"%.5f".format(record.longitude)}",
                 style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyHistoryState(title: String, description: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.Radar,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

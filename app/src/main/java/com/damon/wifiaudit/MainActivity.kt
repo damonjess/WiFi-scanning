@@ -20,6 +20,7 @@ import com.damon.wifiaudit.ui.HistoryScreen
 import com.damon.wifiaudit.ui.MainScanScreen
 import com.damon.wifiaudit.ui.NetworkScannerScreen
 import com.damon.wifiaudit.ui.PermissionGateScreen
+import com.damon.wifiaudit.ui.theme.WiFiAuditTheme
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import kotlinx.coroutines.launch
 
@@ -31,7 +32,7 @@ class MainActivity : ComponentActivity() {
             OuiVendorLookup.initialize(applicationContext)
         }
         setContent {
-            MaterialTheme {
+            WiFiAuditTheme {
                 PermissionGateScreen {
                     AppRoot()
                 }

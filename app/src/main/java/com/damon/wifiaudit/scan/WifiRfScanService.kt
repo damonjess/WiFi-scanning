@@ -169,18 +169,22 @@ class WifiRfScanService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(locationCallback)
-        bleScanManager.stopScan()
-        unregisterReceiver(scanResultsReceiver)
-
-        if (currentSessionId >= 0) {
-            runBlocking {
+        val flushJob = serviceScope.launch {
+            if (currentSessionId >= 0) {
                 coordinator.repository.endSession(currentSessionId)
             }
         }
 
+        runBlocking {
+            withTimeoutOrNull(500) { flushJob.join() }
+        }
+
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+        bleScanManager.stopScan()
+        unregisterReceiver(scanResultsReceiver)
+
         serviceScope.cancel()
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -4,6 +4,7 @@ import android.graphics.Color
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -72,16 +73,47 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         }
     }
 
-    LaunchedEffect(wifiPoints, blePoints, trackPoints, showTrack) {
-        android.util.Log.d("MapScreen", "Refreshing map: ${wifiPoints.size} WiFi, ${blePoints.size} BLE, ${trackPoints.size} track points")
-        
-        // Clear all except our location overlay
-        mapView.overlays.removeAll { it !is MyLocationNewOverlay }
+    // Long-lived route overlay — avoid recreating Polyline on every marker refresh
+    val routePolyline = remember {
+        Polyline().apply {
+            outlinePaint.color = Color.CYAN
+            outlinePaint.strokeWidth = 8f
+            outlinePaint.isAntiAlias = true
+        }
+    }
+
+    // --- ROUTE only (trackPoints / showTrack) ---
+    LaunchedEffect(trackPoints, showTrack) {
+        mapView.overlays.remove(routePolyline)
+
+        if (showTrack && trackPoints.size >= 2) {
+            val simplified = simplifyTrack(
+                trackPoints.map { GeoPoint(it.latitude, it.longitude) },
+                toleranceMeters = 10.0
+            )
+            routePolyline.setPoints(simplified)
+            // Index 0 = under markers so pins stay clickable
+            mapView.overlays.add(0, routePolyline)
+        }
+        mapView.invalidate()
+    }
+
+    // --- MARKERS only (wifi / ble) ---
+    LaunchedEffect(wifiPoints, blePoints) {
+        android.util.Log.d(
+            "MapScreen",
+            "Refreshing markers: ${wifiPoints.size} WiFi, ${blePoints.size} BLE"
+        )
+
+        // Clear everything except my-location and the route polyline
+        mapView.overlays.removeAll {
+            it !is MyLocationNewOverlay && it !== routePolyline
+        }
 
         val wifiIcon = createCircleMarker(Color.BLUE, 50)
         val bleIcon = createCircleMarker(Color.MAGENTA, 50)
         val warningIcon = createCircleMarker(Color.RED, 60)
-        
+
         // Clusterers for different types with increased radius for dense areas
         val wifiClusterer = RadiusMarkerClusterer(context).apply {
             setIcon(createCircleMarker(Color.BLUE, 80, true))
@@ -108,14 +140,14 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         wifiPoints.forEach { record ->
             val vendor = OuiVendorLookup.lookup(record.bssid)
             val match = SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
-            
+
             // Add a tiny bit of jitter (approx 1-2 meters) to prevent perfect stacking
             val latJitter = (random.nextDouble() - 0.5) * 0.00002
             val lonJitter = (random.nextDouble() - 0.5) * 0.00002
             val geo = GeoPoint(record.latitude + latJitter, record.longitude + lonJitter)
-            
+
             allPoints.add(geo)
-            
+
             val marker = Marker(mapView).apply {
                 position = geo
                 title = if (match != null) "⚠ ${match.category.label}: ${record.ssid}" else "WiFi: ${record.ssid}"
@@ -132,14 +164,14 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         blePoints.forEach { record ->
             val vendor = OuiVendorLookup.lookup(record.macAddress)
             val match = SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
-            
+
             // Tiny jitter for BLE as well
             val latJitter = (random.nextDouble() - 0.5) * 0.00002
             val lonJitter = (random.nextDouble() - 0.5) * 0.00002
             val geo = GeoPoint(record.latitude + latJitter, record.longitude + lonJitter)
-            
+
             allPoints.add(geo)
-            
+
             val marker = Marker(mapView).apply {
                 position = geo
                 title = if (match != null) "⚠ ${match.category.label}: ${record.deviceName ?: record.macAddress}" else "BLE: ${record.deviceName ?: record.macAddress}"
@@ -157,12 +189,21 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         if (!bleClusterer.items.isEmpty()) mapView.overlays.add(bleClusterer)
         if (!watchdogClusterer.items.isEmpty()) mapView.overlays.add(watchdogClusterer)
 
-        if (allPoints.isNotEmpty()) {
-            if (allPoints.size == 1) {
+        // Fit camera to markers (and route if visible)
+        val fitPoints = allPoints.toMutableList()
+        if (showTrack && trackPoints.size >= 2) {
+            simplifyTrack(
+                trackPoints.map { GeoPoint(it.latitude, it.longitude) },
+                toleranceMeters = 10.0
+            ).forEach { fitPoints.add(it) }
+        }
+
+        if (fitPoints.isNotEmpty()) {
+            if (fitPoints.size == 1) {
                 mapView.controller.setZoom(17.0)
-                mapView.controller.animateTo(allPoints.first())
+                mapView.controller.animateTo(fitPoints.first())
             } else {
-                val box = BoundingBox.fromGeoPoints(allPoints)
+                val box = BoundingBox.fromGeoPoints(fitPoints)
                 mapView.post {
                     mapView.zoomToBoundingBox(box, true, 100)
                 }
@@ -246,12 +287,49 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         }
 
         if (wifiPoints.isEmpty() && blePoints.isEmpty()) {
-            Text(
-                text = "No sightings yet.\nRun a wardriving scan first.",
-                modifier = Modifier.align(Alignment.Center)
-            )
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Radar,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("No sightings yet", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Start a wardriving scan to populate the map",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
+}
+
+/**
+ * Drops intermediate points closer than [toleranceMeters] to the last kept point.
+ * Always keeps first and last. Good enough for driving tracks; cheap O(n).
+ */
+private fun simplifyTrack(
+    points: List<GeoPoint>,
+    toleranceMeters: Double = 10.0
+): List<GeoPoint> {
+    if (points.size < 3) return points
+    val out = ArrayList<GeoPoint>(points.size / 4 + 2)
+    out.add(points.first())
+    var last = points.first()
+    for (i in 1 until points.lastIndex) {
+        val p = points[i]
+        if (last.distanceToAsDouble(p) >= toleranceMeters) {
+            out.add(p)
+            last = p
+        }
+    }
+    out.add(points.last())
+    return out
 }
 
 private fun formatSessionLabel(s: com.damon.wifiaudit.data.SessionSummary): String {

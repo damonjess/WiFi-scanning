@@ -8,10 +8,8 @@ object OsmConfig {
         Configuration.getInstance().apply {
             load(context, context.getSharedPreferences("osmdroid_prefs", Context.MODE_PRIVATE))
             
-            // OSM tile servers are EXTREMELY picky about User-Agent.
-            // Some block anything with "Android" in it if it doesn't look like a browser.
-            // Let's use a very standard-looking one.
-            userAgentValue = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            // OSM tile servers require a descriptive User-Agent.
+            userAgentValue = "${context.packageName} (wardriving app; contact@damon.com)"
             
             // Set a dedicated cache path
             val osmdroidCache = java.io.File(context.cacheDir, "osmdroid")

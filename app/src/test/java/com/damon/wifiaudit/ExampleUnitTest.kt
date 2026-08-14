@@ -1,4 +1,4 @@
-package com.example.wifiscanning
+package com.damon.wifiaudit
 
 import org.junit.Test
 
