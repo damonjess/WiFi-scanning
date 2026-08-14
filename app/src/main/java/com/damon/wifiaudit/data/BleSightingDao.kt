@@ -27,4 +27,7 @@ interface BleSightingDao {
 
     @Query("SELECT COUNT(*) FROM ble_sightings")
     suspend fun count(): Int
+
+    @Query("SELECT * FROM ble_sightings WHERE macAddress = :mac ORDER BY id DESC LIMIT 1")
+    suspend fun getLatestForMac(mac: String): BleSighting?
 }

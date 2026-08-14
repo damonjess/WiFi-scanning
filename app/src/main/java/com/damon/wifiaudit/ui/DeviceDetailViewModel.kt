@@ -7,16 +7,22 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.damon.wifiaudit.ble.GattSnapshotSerializer
 import com.damon.wifiaudit.ble.LightGattManager
+import com.damon.wifiaudit.ble.AdvertisementParser
+import com.damon.wifiaudit.ble.ParsedAdvertisement
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WifiSightingRecord
 import com.damon.wifiaudit.data.entity.BleGattSnapshot
+import com.damon.wifiaudit.data.entity.RssiHeatmapPoint
 import com.damon.wifiaudit.util.MacOuiExtractor
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class DeviceDetailViewModel(
@@ -27,6 +33,17 @@ class DeviceDetailViewModel(
 
     private val db = AppDatabase.getInstance(app)
     val database: AppDatabase get() = db
+
+    // Heatmap collection
+    private val _heatmapEnabled = MutableStateFlow(false)
+    val heatmapEnabled: StateFlow<Boolean> = _heatmapEnabled.asStateFlow()
+
+    private val _heatmapPoints = MutableStateFlow<List<RssiHeatmapPoint>>(emptyList())
+    val heatmapPoints: StateFlow<List<RssiHeatmapPoint>> = _heatmapPoints.asStateFlow()
+
+    // Parsed advertisement from the latest sighting
+    private val _advertisement = MutableStateFlow<ParsedAdvertisement?>(null)
+    val advertisement: StateFlow<ParsedAdvertisement?> = _advertisement.asStateFlow()
 
     data class UiState(
         val name: String = "",
@@ -43,7 +60,9 @@ class DeviceDetailViewModel(
         val gattState: LightGattManager.State = LightGattManager.State.Disconnected,
         val services: List<LightGattManager.BleService> = emptyList(),
         val gattError: String? = null,
-        val hasHistoricGatt: Boolean = false
+        val hasHistoricGatt: Boolean = false,
+        val isConnectable: Boolean = false,
+        val txPower: Int? = null
     )
 
     private val _state = MutableStateFlow(UiState(macAddress = mac))
@@ -54,7 +73,77 @@ class DeviceDetailViewModel(
     init {
         viewModelScope.launch {
             load()
-            if (type == "BLE") checkHistoricGatt()
+            if (type == "BLE") {
+                checkHistoricGatt()
+                loadAdvertisementData()
+                observeHeatmapPoints()
+            }
+        }
+    }
+
+    private suspend fun loadAdvertisementData() {
+        val sighting = db.bleSightingDao().getLatestForMac(mac) ?: return
+        val parsed = AdvertisementParser.parse(sighting.scanRecord)
+        _advertisement.value = parsed
+
+        _state.value = _state.value.copy(
+            isConnectable = parsed.isConnectable,
+            txPower = parsed.txPowerLevel ?: _state.value.txPower
+        )
+    }
+
+    private fun observeHeatmapPoints() {
+        viewModelScope.launch {
+            db.rssiHeatmapDao().getPointsForMac(mac).collect { points ->
+                _heatmapPoints.value = points
+            }
+        }
+    }
+
+    fun toggleHeatmap() {
+        val newState = !_heatmapEnabled.value
+        _heatmapEnabled.value = newState
+
+        if (newState) {
+            startHeatmapCollection()
+        } else {
+            stopHeatmapCollection()
+        }
+    }
+
+    private var heatmapJob: Job? = null
+
+    private fun startHeatmapCollection() {
+        heatmapJob?.cancel()
+        heatmapJob = viewModelScope.launch {
+            while (isActive && _heatmapEnabled.value) {
+                val currentRssi = _state.value.rssi
+                val lat = _state.value.latitude
+                val lng = _state.value.longitude
+
+                if (lat != null && lng != null) {
+                    db.rssiHeatmapDao().insert(
+                        RssiHeatmapPoint(
+                            macAddress = mac,
+                            rssi = currentRssi,
+                            latitude = lat,
+                            longitude = lng,
+                            accuracy = null
+                        )
+                    )
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    private fun stopHeatmapCollection() {
+        heatmapJob?.cancel()
+    }
+
+    fun clearHeatmap() {
+        viewModelScope.launch {
+            db.rssiHeatmapDao().clearForMac(mac)
         }
     }
 

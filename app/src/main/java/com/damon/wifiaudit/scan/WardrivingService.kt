@@ -94,6 +94,12 @@ class WardrivingService : Service() {
             iBeaconMinor = iBeacon?.minor,
             iBeaconUuid = iBeacon?.uuid,
             lastSeenMillis = System.currentTimeMillis(),
+            rawBytes = record?.bytes,
+            isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                result.isConnectable
+            } else {
+                record?.advertiseFlags?.let { flags -> (flags and 0x02) != 0 } ?: false
+            }
         )
         bleDeviceMap[info.macAddress] = info
         ScanStatusRepository.updateBleDevices(bleDeviceMap.values.toList())

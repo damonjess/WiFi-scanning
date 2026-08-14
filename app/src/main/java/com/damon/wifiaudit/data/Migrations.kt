@@ -93,3 +93,24 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add scanRecord to ble_sightings
+        db.execSQL("ALTER TABLE ble_sightings ADD COLUMN scanRecord BLOB")
+        
+        // Create heatmap points table
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS rssi_heatmap_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                macAddress TEXT NOT NULL,
+                rssi INTEGER NOT NULL,
+                latitude REAL,
+                longitude REAL,
+                accuracy REAL,
+                timestamp INTEGER NOT NULL
+            )
+        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_heatmap_mac ON rssi_heatmap_points(macAddress, timestamp)")
+    }
+}
+

@@ -48,7 +48,8 @@ class ScanCycleCoordinator(
                 rssi = d.rssi,
                 txPower = d.txPowerLevel,
                 proximityUuid = d.iBeaconUuid,
-                deviceModel = DeviceModelLookup.identify(d)
+                deviceModel = DeviceModelLookup.identify(d),
+                scanRecord = d.rawBytes
             )
         }
 

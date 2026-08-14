@@ -2,27 +2,27 @@ package com.damon.wifiaudit.ui
 
 import android.app.Application
 import android.bluetooth.BluetoothGattCharacteristic
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.buildAnnotatedString
@@ -35,9 +35,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.damon.wifiaudit.ble.AdvertisementParser
 import com.damon.wifiaudit.ble.BleUuidResolver
 import com.damon.wifiaudit.ble.GattUuidResolver
 import com.damon.wifiaudit.ble.LightGattManager
+import com.damon.wifiaudit.ble.ParsedAdvertisement
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.ui.theme.*
 import com.damon.wifiaudit.vendor.OuiVendorLookup
@@ -46,7 +48,7 @@ import org.osmdroid.views.MapView
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DeviceDetailScreen(
     macAddress: String,
@@ -63,6 +65,18 @@ fun DeviceDetailScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
+    val adv by viewModel.advertisement.collectAsState()
+    val heatmapEnabled by viewModel.heatmapEnabled.collectAsState()
+    val heatmapPoints by viewModel.heatmapPoints.collectAsState()
+    
+    var showHeatmapSheet by remember { mutableStateOf(false) }
+
+    if (showHeatmapSheet) {
+        HeatmapBottomSheet(
+            points = heatmapPoints,
+            onDismiss = { showHeatmapSheet = false }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -90,220 +104,398 @@ fun DeviceDetailScreen(
         },
         containerColor = DarkBackground
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .fillMaxSize()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // MAP CARD
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface)
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (state.latitude != null && state.longitude != null) {
-                        val mapView = remember {
-                            MapView(context).apply {
-                                setMultiTouchControls(false)
-                                controller.setZoom(17.0)
-                                controller.setCenter(GeoPoint(state.latitude!!, state.longitude!!))
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (state.latitude != null && state.longitude != null) {
+                            val mapView = remember {
+                                MapView(context).apply {
+                                    setMultiTouchControls(false)
+                                    controller.setZoom(17.0)
+                                    controller.setCenter(GeoPoint(state.latitude!!, state.longitude!!))
+                                }
                             }
-                        }
-                        DisposableEffect(Unit) {
-                            mapView.onResume()
-                            onDispose { mapView.onPause(); mapView.onDetach() }
-                        }
-                        AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+                            DisposableEffect(Unit) {
+                                mapView.onResume()
+                                onDispose { mapView.onPause(); mapView.onDetach() }
+                            }
+                            AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
-                        // Green dot pin
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .align(Alignment.Center)
-                                .background(Color(0xFF76FF03).copy(alpha = 0.25f), CircleShape)
-                                .border(1.5.dp, Color(0xFF76FF03), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
+                            // Green dot pin
                             Box(
                                 modifier = Modifier
-                                    .size(10.dp)
-                                    .background(Color(0xFF76FF03), CircleShape)
-                            )
-                        }
-                    } else {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No location data", color = TextMuted)
+                                    .size(28.dp)
+                                    .align(Alignment.Center)
+                                    .background(Color(0xFF76FF03).copy(alpha = 0.25f), CircleShape)
+                                    .border(1.5.dp, Color(0xFF76FF03), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Color(0xFF76FF03), CircleShape)
+                                )
+                            }
+                        } else {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No location data", color = TextMuted)
+                            }
                         }
                     }
                 }
             }
 
-            // RANGE HEATMAP TOGGLE
+            // CORE INFO
+            item {
+                CoreInfoCard(state)
+            }
+
+            // HEATMAP CONTROL
+            item {
+                HeatmapControlCard(
+                    enabled = heatmapEnabled,
+                    pointCount = heatmapPoints.size,
+                    onToggle = { viewModel.toggleHeatmap() },
+                    onViewMap = { showHeatmapSheet = true },
+                    onClear = { viewModel.clearHeatmap() }
+                )
+            }
+
+            // METADATA / ADVERTISEMENT
+            if (deviceType == "BLE") {
+                item {
+                    MetadataSection(
+                        state = state,
+                        advertisement = adv,
+                        onAnalyse = { viewModel.analyseDevice() },
+                        isAnalysing = state.gattState is LightGattManager.State.Connecting ||
+                                      state.gattState is LightGattManager.State.Discovering,
+                        isConnected = state.gattState is LightGattManager.State.Ready,
+                        onLoadHistoric = { viewModel.loadHistoricGatt() }
+                    )
+                }
+            }
+
+            // GATT SERVICES
+            if (state.services.isNotEmpty()) {
+                item {
+                    Text(
+                        "${state.services.size} service${if (state.services.size != 1) "s" else ""} discovered",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
+                items(state.services) { service ->
+                    ServiceCard(service, viewModel.database)
+                }
+            }
+
+            // HISTORY STATS
+            item {
+                Column(modifier = Modifier.padding(top = 16.dp)) {
+                    DetailField("Detect count", state.detectCount.toString())
+                    state.firstSeen?.let { DetailField("First detection", formatDate(it)) }
+                    state.lastSeen?.let { DetailField("Last detection", formatDate(it)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoreInfoCard(state: DeviceDetailViewModel.UiState) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            DetailField(label = "Name", value = state.name)
+            DetailField(label = "Address", value = state.macAddress)
+            DetailField(label = "Manufacturer", value = state.vendor ?: "Unknown")
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                StatChip(
+                    label = "RSSI",
+                    value = "${state.rssi} dBm",
+                    color = when {
+                        state.rssi > -60 -> Color(0xFF81C784)
+                        state.rssi > -80 -> Color(0xFFFFB74D)
+                        else -> Color(0xFFE57373)
+                    }
+                )
+                StatChip(
+                    label = "Detections",
+                    value = state.detectCount.toString()
+                )
+                StatChip(
+                    label = "Connectable",
+                    value = if (state.isConnectable) "Yes" else "No",
+                    color = if (state.isConnectable) Color(0xFF81C784) else Color(0xFF9E9E9E)
+                )
+            }
+
+            state.txPower?.let { tx ->
+                Text(
+                    text = "TX Power: $tx dBm",
+                    fontSize = 12.sp,
+                    color = TextMuted,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatChip(label: String, value: String, color: Color = Color(0xFF8C9EFF)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            color = TextMuted
+        )
+    }
+}
+
+@Composable
+private fun HeatmapControlCard(
+    enabled: Boolean,
+    pointCount: Int,
+    onToggle: () -> Unit,
+    onViewMap: () -> Unit,
+    onClear: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "Range heatmap",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = if (enabled) "Collecting… ($pointCount points)" else "$pointCount points stored",
+                    fontSize = 12.sp,
+                    color = if (enabled) Color(0xFF81C784) else TextMuted
+                )
+            }
+
+            Switch(
+                checked = enabled,
+                onCheckedChange = { onToggle() },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color(0xFF8C9EFF),
+                    checkedTrackColor = Color(0xFF8C9EFF).copy(alpha = 0.5f),
+                    uncheckedThumbColor = Color(0xFF5C5C6D),
+                    uncheckedTrackColor = Color(0xFF2A2A35)
+                )
+            )
+        }
+
+        if (pointCount > 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onViewMap,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFF8C9EFF).copy(alpha = 0.4f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8C9EFF)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("View Heatmap")
+                }
+                OutlinedButton(
+                    onClick = onClear,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE57373).copy(alpha = 0.4f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE57373)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Clear")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MetadataSection(
+    state: DeviceDetailViewModel.UiState,
+    advertisement: ParsedAdvertisement?,
+    onAnalyse: () -> Unit,
+    isAnalysing: Boolean,
+    isConnected: Boolean,
+    onLoadHistoric: () -> Unit
+) {
+    var showRaw by remember { mutableStateOf(false) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Range heatmap", color = Color.White, fontSize = 16.sp)
-                Switch(
-                    checked = false,
-                    onCheckedChange = { /* TODO */ },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF8C9EFF),
-                        checkedTrackColor = Color(0xFF3D5AFE).copy(alpha = 0.5f)
-                    )
+                Text(
+                    text = "Metadata",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
-            }
 
-            // HISTORY STYLE
-            DetailRow("History style", "Markers", subtitleColor = TextMuted)
-
-            // HISTORY PERIOD
-            DetailRow(
-                "History period: Day",
-                "Showing big location history may affect map performance",
-                subtitleColor = Color(0xFFFFB74D)
-            )
-
-            // ADD TAG
-            OutlinedButton(
-                onClick = { },
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, DarkSurfaceElevated),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-            ) {
-                Text("+  Add tag")
-            }
-
-            // INFO CARD
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    // Header
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(Color(0xFF3D5AFE).copy(alpha = 0.2f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Bluetooth, null, tint = Color(0xFF8C9EFF), modifier = Modifier.size(24.dp))
+                Button(
+                    onClick = onAnalyse,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = when {
+                            isAnalysing -> Color(0xFFFFB300).copy(alpha = 0.2f)
+                            isConnected -> Color(0xFFE57373).copy(alpha = 0.2f)
+                            else -> Color(0xFF2E7D32).copy(alpha = 0.3f)
+                        },
+                        contentColor = when {
+                            isAnalysing -> Color(0xFFFFB300)
+                            isConnected -> Color(0xFFE57373)
+                            else -> Color(0xFF81C784)
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(state.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    DetailField("Name", state.name)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        DetailField("Address", state.macAddress, Modifier.weight(1f))
+                    )
+                ) {
+                    if (isAnalysing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color(0xFFFFB300),
+                            strokeWidth = 2.dp
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
-                        StateBadge("RST")
+                        Text("Analysing…")
+                    } else if (isConnected) {
+                        Text("Disconnect")
+                    } else {
+                        Text("Analyse")
                     }
-                    DetailField("Manufacturer", state.vendor ?: "N/A")
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+            if (!isConnected && !isAnalysing && state.hasHistoricGatt) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onLoadHistoric,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFF8C9EFF).copy(alpha = 0.4f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8C9EFF)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Load saved GATT snapshot")
+                }
+            }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Metadata", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        
-                        if (deviceType == "BLE") {
-                            val isAnalysing = state.gattState is LightGattManager.State.Connecting ||
-                                              state.gattState is LightGattManager.State.Discovering
-                            val isConnected = state.gattState is LightGattManager.State.Ready
+            advertisement?.let { adv ->
+                Spacer(modifier = Modifier.height(12.dp))
 
-                            Button(
-                                onClick = { viewModel.analyseDevice() },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = when {
-                                        isConnected -> Color(0xFF2E7D32).copy(alpha = 0.3f)
-                                        isAnalysing -> Color(0xFFFFB300).copy(alpha = 0.2f)
-                                        else -> Color(0xFF2E7D32).copy(alpha = 0.3f)
-                                    },
-                                    contentColor = when {
-                                        isConnected -> Color(0xFF81C784)
-                                        isAnalysing -> Color(0xFFFFB300)
-                                        else -> Color(0xFF81C784)
-                                    }
-                                )
-                            ) {
-                                if (isAnalysing) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        color = Color(0xFFFFB300),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Analysing...")
-                                } else if (isConnected) {
-                                    Text("Disconnect")
-                                } else {
-                                    Text("Analyse")
-                                }
-                            }
-
-                            // Show "Load saved" if we have historic data but no live connection
-                            if (!isConnected && !isAnalysing && state.hasHistoricGatt) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                OutlinedButton(
-                                    onClick = { viewModel.loadHistoricGatt() },
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF8C9EFF).copy(alpha = 0.4f)),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8C9EFF))
+                adv.flags?.let { flags ->
+                    val flagNames = AdvertisementParser.formatFlags(flags)
+                    if (flagNames.isNotEmpty()) {
+                        Text("Flags", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                        FlowRow(modifier = Modifier.padding(top = 4.dp)) {
+                            flagNames.forEach { flag ->
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF8C9EFF).copy(alpha = 0.12f),
+                                    modifier = Modifier.padding(end = 6.dp, bottom = 4.dp)
                                 ) {
-                                    Text("Load saved", fontSize = 12.sp)
+                                    Text(
+                                        text = flag,
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF8C9EFF),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
                                 }
                             }
                         }
                     }
+                }
 
-                    state.gattError?.let { error ->
-                        Spacer(modifier = Modifier.height(8.dp))
+                if (adv.serviceUuids.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Advertised Services (${adv.serviceUuids.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                    adv.serviceUuids.take(5).forEach { uuid ->
+                        Text(uuid.toString(), fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace)
+                    }
+                }
+
+                if (adv.manufacturerData.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Manufacturer Data", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                    adv.manufacturerData.forEach { (id, bytes) ->
+                        Text("ID 0x${id.toString(16).uppercase()}: ${bytes.joinToString("") { "%02X".format(it) }}",
+                            fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(onClick = { showRaw = !showRaw }) {
+                    Text(if (showRaw) "Hide raw data" else "Show raw advertisement data", fontSize = 12.sp, color = Color(0xFF8C9EFF))
+                }
+                AnimatedVisibility(visible = showRaw) {
+                    SelectionContainer {
                         Text(
-                            text = "⚠️ $error",
-                            fontSize = 12.sp,
-                            color = Color(0xFFFFB74D),
-                            modifier = Modifier.padding(start = 4.dp)
+                            text = adv.rawHex,
+                            fontSize = 10.sp,
+                            color = TextMuted,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                .padding(8.dp)
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val services = state.services
-                    val serviceCount = services.size
-
-                    ExpandableSection(
-                        title = "$serviceCount service${if (serviceCount != 1) "s" else ""} discovered",
-                        initiallyExpanded = services.isNotEmpty()
-                    ) {
-                        services.forEach { svc ->
-                            ServiceCard(svc, viewModel.database)
-                        }
-                        if (services.isEmpty() && state.gattState is LightGattManager.State.Disconnected) {
-                            Text(
-                                "Tap Analyse to connect and discover services",
-                                color = TextMuted,
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-                    ExpandableSection("0 raw data fragments") {}
-
-                    DetailField("Detect count", state.detectCount.toString())
-                    state.firstSeen?.let { DetailField("First detection", formatDate(it)) }
-                    state.lastSeen?.let { DetailField("Last detection", formatDate(it)) }
                 }
             }
         }
