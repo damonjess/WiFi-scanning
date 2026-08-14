@@ -24,5 +24,6 @@ data class WifiSighting(
     val bssid: String,
     val rssi: Int,
     val frequency: Int,
-    val encryption: String
+    val encryption: String,
+    val deviceModel: String? = null
 )

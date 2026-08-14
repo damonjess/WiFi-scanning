@@ -33,3 +33,22 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("CREATE INDEX IF NOT EXISTS index_location_fixes_sessionId ON location_fixes(sessionId)")
     }
 }
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add deviceModel to sightings
+        db.execSQL("ALTER TABLE wifi_sightings ADD COLUMN deviceModel TEXT")
+        db.execSQL("ALTER TABLE ble_sightings ADD COLUMN deviceModel TEXT")
+
+        // Create API Queue table
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS api_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                payload TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                retryCount INTEGER NOT NULL DEFAULT 0,
+                isPending INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+    }
+}

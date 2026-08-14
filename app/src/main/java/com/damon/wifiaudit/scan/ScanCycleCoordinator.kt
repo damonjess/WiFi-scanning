@@ -2,6 +2,7 @@ package com.damon.wifiaudit.scan
 
 import com.damon.wifiaudit.ble.BleDeviceInfo
 import com.damon.wifiaudit.data.*
+import com.damon.wifiaudit.vendor.DeviceModelLookup
 
 /**
  * Bridges the independent WiFi + BLE scan sources into a single atomic
@@ -34,7 +35,8 @@ class ScanCycleCoordinator(
                 bssid = r.BSSID,
                 rssi = r.level,
                 frequency = r.frequency,
-                encryption = parseEncryption(r.capabilities)
+                encryption = parseEncryption(r.capabilities),
+                deviceModel = DeviceModelLookup.identify(r)
             )
         }
 
@@ -45,7 +47,8 @@ class ScanCycleCoordinator(
                 deviceName = d.deviceName,
                 rssi = d.rssi,
                 txPower = d.txPowerLevel,
-                proximityUuid = d.iBeaconUuid
+                proximityUuid = d.iBeaconUuid,
+                deviceModel = DeviceModelLookup.identify(d)
             )
         }
 

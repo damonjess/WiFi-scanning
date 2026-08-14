@@ -15,6 +15,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.damon.wifiaudit.data.BleSightingRecord
 import com.damon.wifiaudit.data.WifiSightingRecord
+import com.damon.wifiaudit.scan.NetworkViewModel
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import java.text.SimpleDateFormat
@@ -31,6 +32,8 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
 
     val wifiItems = viewModel.wifiPagingFlow.collectAsLazyPagingItems()
     val bleItems = viewModel.blePagingFlow.collectAsLazyPagingItems()
+
+    var selectedDevice by remember { mutableStateOf<NetworkViewModel.NetworkDevice?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedTab.ordinal) {
@@ -78,7 +81,23 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(wifiItems.itemCount, key = wifiItems.itemKey { it.id }) { index ->
-                    wifiItems[index]?.let { WifiRecordCard(it) }
+                    wifiItems[index]?.let { record ->
+                        WifiRecordCard(
+                            record = record,
+                            onClick = {
+                                selectedDevice = NetworkViewModel.NetworkDevice(
+                                    ip = "N/A",
+                                    mac = record.bssid,
+                                    vendor = OuiVendorLookup.lookup(record.bssid),
+                                    vendorInfo = OuiVendorLookup.lookupInfo(record.bssid),
+                                    hostname = record.ssid,
+                                    source = "History (WiFi)",
+                                    openPorts = emptyList(),
+                                    securityMatches = emptyList()
+                                )
+                            }
+                        )
+                    }
                 }
             }
         } else {
@@ -88,23 +107,52 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(bleItems.itemCount, key = bleItems.itemKey { it.id }) { index ->
-                    bleItems[index]?.let { BleRecordCard(it) }
+                    bleItems[index]?.let { record ->
+                        BleRecordCard(
+                            record = record,
+                            onClick = {
+                                selectedDevice = NetworkViewModel.NetworkDevice(
+                                    ip = "N/A",
+                                    mac = record.macAddress,
+                                    vendor = OuiVendorLookup.lookup(record.macAddress),
+                                    vendorInfo = OuiVendorLookup.lookupInfo(record.macAddress),
+                                    hostname = record.deviceName,
+                                    source = "History (BLE)",
+                                    openPorts = emptyList(),
+                                    securityMatches = emptyList()
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    selectedDevice?.let { device ->
+        DeviceDetailBottomSheet(
+            device = device,
+            onDismiss = { selectedDevice = null }
+        )
     }
 }
 
 private val dateFormat = SimpleDateFormat("MMM d, HH:mm:ss", Locale.getDefault())
 
 @Composable
-private fun WifiRecordCard(record: WifiSightingRecord) {
+private fun WifiRecordCard(
+    record: WifiSightingRecord,
+    onClick: () -> Unit
+) {
     val vendor = remember(record.bssid) { OuiVendorLookup.lookup(record.bssid) }
     val watchdogMatch = remember(record.ssid, vendor) {
         SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Text(record.ssid, style = MaterialTheme.typography.titleSmall)
@@ -114,6 +162,18 @@ private fun WifiRecordCard(record: WifiSightingRecord) {
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text(record.encryption) })
+                if (vendor != null) {
+                    AssistChip(onClick = {}, label = { Text(vendor) })
+                }
+                if (record.deviceModel != null) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(record.deviceModel) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                }
                 if (watchdogMatch != null) {
                     AssistChip(
                         onClick = {},
@@ -133,7 +193,10 @@ private fun WifiRecordCard(record: WifiSightingRecord) {
 }
 
 @Composable
-private fun BleRecordCard(record: BleSightingRecord) {
+private fun BleRecordCard(
+    record: BleSightingRecord,
+    onClick: () -> Unit
+) {
     val vendor = remember(record.macAddress) {
         OuiVendorLookup.lookup(record.macAddress)
     }
@@ -141,7 +204,10 @@ private fun BleRecordCard(record: BleSightingRecord) {
         SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Text(record.deviceName ?: "Unnamed device", style = MaterialTheme.typography.titleSmall)
@@ -151,6 +217,15 @@ private fun BleRecordCard(record: BleSightingRecord) {
 
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (record.deviceModel != null) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(record.deviceModel) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                }
                 if (watchdogMatch != null) {
                     AssistChip(
                         onClick = {},

@@ -1,5 +1,8 @@
 package com.damon.wifiaudit.scan
 
+import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
+
 data class OnvifDeviceInfo(
     val ip: String,
     val epAddress: String?,
@@ -32,5 +35,7 @@ data class NetworkDevice(
     val hostname: String,
     val mac: String,
     val vendor: String?,
-    val openPorts: List<Int>
+    val vendorInfo: OuiVendorLookup.VendorInfo? = null,
+    val openPorts: List<Int>,
+    val securityMatches: List<SurveillanceDeviceWatchdog.Match> = emptyList()
 )

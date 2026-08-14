@@ -3,6 +3,8 @@ package com.damon.wifiaudit.ui
 import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
@@ -23,6 +25,7 @@ fun MainScanScreen() {
     val context = LocalContext.current
     val statusViewModel: WardrivingStatusViewModel = viewModel()
     val snapshot by statusViewModel.snapshot.collectAsStateWithLifecycle()
+    val pendingUploads by statusViewModel.pendingUploads.collectAsStateWithLifecycle()
     var serviceRunning by remember { mutableStateOf(false) }
     var startTime by remember { mutableStateOf(0L) }
     var elapsedSeconds by remember { mutableStateOf(0L) }
@@ -96,7 +99,50 @@ fun MainScanScreen() {
         ) {
             CounterCard("Wi-Fi", snapshot.wifiResults.size.toString(), Modifier.weight(1f))
             CounterCard("BLE", snapshot.bleDevices.size.toString(), Modifier.weight(1f))
-            CounterCard("Saved", snapshot.cyclesWritten.toString(), Modifier.weight(1f))
+            Column(modifier = Modifier.weight(1f)) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            if (pendingUploads > 0) Icons.Default.CloudUpload else Icons.Default.CloudDone,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            snapshot.cyclesWritten.toString(),
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text("Saved", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                
+                if (pendingUploads > 0) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(2.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "$pendingUploads in queue",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Text(
+                        "Sync: Ready",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

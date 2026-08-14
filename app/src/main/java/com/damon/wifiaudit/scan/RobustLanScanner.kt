@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.util.Log
 import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.io.FileReader
@@ -21,11 +22,11 @@ class RobustLanScanner(private val context: Context) {
     private val tag = "RobustLanScanner"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // Ports commonly used by CCTV / IP cameras
+    // Ports commonly used by CCTV / IP cameras and vulnerable services
     private val probePorts = intArrayOf(
         80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
         443, 554, 8554, 8000, 8001, 8080, 8443, 8899, 37777, 34567,
-        21, 22, 23, 111, 135, 139, 445,
+        21, 22, 23, 111, 135, 139, 445, 161, 5000, 5001,
         1024, 1025, 1026, 1027, 1028, 1029, 1030,
         32400, 8008, 8009, 5353, 1900
     )
@@ -36,7 +37,8 @@ class RobustLanScanner(private val context: Context) {
         val hostname: String? = null,
         val openPorts: List<Int> = emptyList(),
         val source: String = "unknown",
-        val vendor: String? = null
+        val vendor: String? = null,
+        val securityMatches: List<SurveillanceDeviceWatchdog.Match> = emptyList()
     )
 
     fun scan(
@@ -117,13 +119,18 @@ class RobustLanScanner(private val context: Context) {
             ?: guessVendorFromHostname(hostname)
             ?: mac?.let { guessVendorFromMac(it) }
         
+        val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi(hostname ?: "", vendor)
+        val vulnMatches = SurveillanceDeviceWatchdog.analyzeVulnerabilities(vendor, openPorts)
+        val allMatches = (listOfNotNull(wifiMatch) + vulnMatches).distinctBy { it.category to it.matchedOn }
+
         Device(
             ip = ip,
             mac = mac,
             hostname = hostname,
             openPorts = openPorts.sorted(),
             source = if (openPorts.isNotEmpty()) "tcp" else "icmp",
-            vendor = vendor
+            vendor = vendor,
+            securityMatches = allMatches
         )
     }
 

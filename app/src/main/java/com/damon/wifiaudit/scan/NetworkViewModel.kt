@@ -3,6 +3,8 @@ package com.damon.wifiaudit.scan
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,10 +26,12 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         val ip: String,
         val mac: String?,
         val vendor: String?,
+        val vendorInfo: OuiVendorLookup.VendorInfo? = null,
         val hostname: String?,
         val source: String?,
         val openPorts: List<Int>,
-        val responseTime: Long = 0
+        val responseTime: Long = 0,
+        val securityMatches: List<SurveillanceDeviceWatchdog.Match> = emptyList()
     )
 
     init {
@@ -39,13 +43,16 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             coordinator.devices.collect { devices ->
                 _discoveredDevices.value = devices.map { dev ->
+                    val vendorInfo = dev.mac?.let { OuiVendorLookup.lookupInfo(it) }
                     NetworkDevice(
                         ip = dev.ip,
                         mac = dev.mac,
-                        vendor = dev.vendor,
+                        vendor = dev.vendor ?: vendorInfo?.name,
+                        vendorInfo = vendorInfo,
                         hostname = dev.hostname,
                         source = dev.source,
-                        openPorts = dev.openPorts
+                        openPorts = dev.openPorts,
+                        securityMatches = dev.securityMatches
                     )
                 }.sortedBy { it.ip.substringAfterLast(".").toIntOrNull() ?: 0 }
             }

@@ -17,11 +17,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.damon.wifiaudit.scan.NetworkViewModel
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 
 @Composable
 fun NetworkScannerScreen(viewModel: NetworkViewModel = viewModel()) {
     val isScanning by viewModel.isScanning.collectAsState()
     val devices by viewModel.discoveredDevices.collectAsState()
+    var selectedDevice by remember { mutableStateOf<NetworkViewModel.NetworkDevice?>(null) }
 
     Column(
         modifier = Modifier
@@ -98,17 +100,31 @@ fun NetworkScannerScreen(viewModel: NetworkViewModel = viewModel()) {
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 items(devices) { device ->
-                    DeviceCard(device)
+                    DeviceCard(
+                        device = device,
+                        onClick = { selectedDevice = device }
+                    )
                 }
             }
         }
     }
+
+    selectedDevice?.let { device ->
+        DeviceDetailBottomSheet(
+            device = device,
+            onDismiss = { selectedDevice = null }
+        )
+    }
 }
 
 @Composable
-fun DeviceCard(device: NetworkViewModel.NetworkDevice) {
+fun DeviceCard(
+    device: NetworkViewModel.NetworkDevice,
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         )
@@ -149,6 +165,39 @@ fun DeviceCard(device: NetworkViewModel.NetworkDevice) {
                 )
             }
             
+            if (device.securityMatches.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                device.securityMatches.forEach { match ->
+                    val containerColor = when (match.severity) {
+                        SurveillanceDeviceWatchdog.Severity.CRITICAL -> MaterialTheme.colorScheme.error
+                        SurveillanceDeviceWatchdog.Severity.HIGH -> MaterialTheme.colorScheme.errorContainer
+                        SurveillanceDeviceWatchdog.Severity.MEDIUM -> MaterialTheme.colorScheme.tertiaryContainer
+                        else -> MaterialTheme.colorScheme.secondaryContainer
+                    }
+                    val contentColor = when (match.severity) {
+                        SurveillanceDeviceWatchdog.Severity.CRITICAL -> MaterialTheme.colorScheme.onError
+                        SurveillanceDeviceWatchdog.Severity.HIGH -> MaterialTheme.colorScheme.onErrorContainer
+                        SurveillanceDeviceWatchdog.Severity.MEDIUM -> MaterialTheme.colorScheme.onTertiaryContainer
+                        else -> MaterialTheme.colorScheme.onSecondaryContainer
+                    }
+
+                    Surface(
+                        color = containerColor,
+                        contentColor = contentColor,
+                        shape = MaterialTheme.shapes.extraSmall,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "⚠ ${match.category.label}: ${match.matchedOn}",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -156,9 +205,10 @@ fun DeviceCard(device: NetworkViewModel.NetworkDevice) {
             ) {
                 if (device.mac != null) {
                     Text(
-                        text = device.mac,
+                        text = "MAC: ${device.mac}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold
                     )
                 }
                 

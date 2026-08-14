@@ -30,7 +30,14 @@ object ScanStatusRepository {
     }
 
     fun updateWifiResults(results: List<ScanResult>) {
-        _snapshot.value = _snapshot.value.copy(wifiResults = results)
+        val current = _snapshot.value.wifiResults.associateBy { it.BSSID }.toMutableMap()
+        results.forEach { newResult ->
+            val existing = current[newResult.BSSID]
+            if (existing == null || newResult.level > existing.level) {
+                current[newResult.BSSID] = newResult
+            }
+        }
+        _snapshot.value = _snapshot.value.copy(wifiResults = current.values.toList())
     }
 
     fun updateBleDevices(devices: List<BleDeviceInfo>) {

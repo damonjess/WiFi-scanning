@@ -39,6 +39,7 @@ class WardrivingService : Service() {
 
     private var currentSessionId: Long = -1L
     @Volatile private var lastKnownLocation: Location? = null
+    private var lastCommittedLocation: Location? = null
     private val bleDeviceMap = mutableMapOf<String, BleDeviceInfo>()
     private val alertedDevices = mutableSetOf<String>()
 
@@ -196,6 +197,12 @@ class WardrivingService : Service() {
                 if (snapshot.wifiResults.isEmpty() && snapshot.bleDevices.isEmpty()) continue
                 if (currentSessionId < 0) continue
 
+                // 50m Distance Filter: Only commit if we've moved significantly
+                val lastLoc = lastCommittedLocation
+                if (lastLoc != null && loc.distanceTo(lastLoc) < 50f) {
+                    continue
+                }
+
                 // Watchdog alerts
                 val newMatches = snapshot.wifiResults.mapNotNull { r ->
                     val vendor = OuiVendorLookup.lookup(r.BSSID)
@@ -220,6 +227,9 @@ class WardrivingService : Service() {
                     wifiResults = snapshot.wifiResults,
                     bleResults = snapshot.bleDevices
                 )
+                UploadWorker.enqueue(applicationContext)
+                lastCommittedLocation = loc
+                
                 ScanStatusRepository.markCommitted()
                 ScanStatusRepository.clearWifiResults()
                 ScanStatusRepository.clearBleDevices()
@@ -282,6 +292,7 @@ class WardrivingService : Service() {
                     wifiResults = snapshot.wifiResults,
                     bleResults = snapshot.bleDevices
                 )
+                UploadWorker.enqueue(applicationContext)
             }
         }
 

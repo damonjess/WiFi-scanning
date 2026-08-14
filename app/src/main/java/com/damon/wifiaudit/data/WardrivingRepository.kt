@@ -1,6 +1,8 @@
 package com.damon.wifiaudit.data
 
 import androidx.room.Transaction
+import org.json.JSONArray
+import org.json.JSONObject
 
 class WardrivingRepository(
     private val db: AppDatabase
@@ -22,12 +24,54 @@ class WardrivingRepository(
     ) {
         val locationId = locationDao.insert(location)
 
-        if (wifiSightings.isNotEmpty()) {
-            wifiDao.insertAll(wifiSightings.map { it.copy(locationId = locationId) })
+        val updatedWifi = wifiSightings.map { it.copy(locationId = locationId) }
+        val updatedBle = bleSightings.map { it.copy(locationId = locationId) }
+
+        if (updatedWifi.isNotEmpty()) {
+            wifiDao.insertAll(updatedWifi)
         }
-        if (bleSightings.isNotEmpty()) {
-            bleDao.insertAll(bleSightings.map { it.copy(locationId = locationId) })
+        if (updatedBle.isNotEmpty()) {
+            bleDao.insertAll(updatedBle)
         }
+
+        // Add to API Queue for batch upload
+        val payload = createPayload(location, updatedWifi, updatedBle)
+        db.apiQueueDao().insert(ApiQueueItem(payload = payload))
+    }
+
+    private fun createPayload(
+        location: LocationFix,
+        wifi: List<WifiSighting>,
+        ble: List<BleSighting>
+    ): String {
+        val json = JSONObject()
+        json.put("lat", location.latitude)
+        json.put("lon", location.longitude)
+        json.put("time", location.timestamp)
+
+        val wifiArray = JSONArray()
+        wifi.forEach {
+            val w = JSONObject()
+            w.put("bssid", it.bssid)
+            w.put("ssid", it.ssid)
+            w.put("rssi", it.rssi)
+            w.put("model", it.deviceModel ?: JSONObject.NULL)
+            wifiArray.put(w)
+        }
+        json.put("wifi", wifiArray)
+
+        val bleArray = JSONArray()
+        ble.forEach {
+            val b = JSONObject()
+            b.put("mac", it.macAddress)
+            b.put("name", it.deviceName ?: JSONObject.NULL)
+            b.put("rssi", it.rssi)
+            b.put("model", it.deviceModel ?: JSONObject.NULL)
+            bleArray.put(b)
+        }
+        json.put("ble", bleArray)
+
+        return json.toString()
     }
 
     suspend fun startSession(): Long {

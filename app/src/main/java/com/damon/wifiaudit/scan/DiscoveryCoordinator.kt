@@ -3,6 +3,7 @@ package com.damon.wifiaudit.scan
 import android.content.Context
 import android.util.Log
 import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -148,7 +149,11 @@ class DiscoveryCoordinator(private val context: Context) {
             if (dev.mac == null) {
                 arpTable[ip]?.let { mac ->
                     val vendor = OuiVendorLookup.lookup(mac) ?: dev.vendor
-                    deviceMap[ip] = dev.copy(mac = mac, vendor = vendor)
+                    val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi(dev.hostname ?: "", vendor)
+                    val vulnMatches = SurveillanceDeviceWatchdog.analyzeVulnerabilities(vendor, dev.openPorts)
+                    val allMatches = (dev.securityMatches + listOfNotNull(wifiMatch) + vulnMatches).distinctBy { it.category to it.matchedOn }
+                    
+                    deviceMap[ip] = dev.copy(mac = mac, vendor = vendor, securityMatches = allMatches)
                     changed = true
                 }
             }
@@ -168,14 +173,17 @@ class DiscoveryCoordinator(private val context: Context) {
         val merged = if (existing != null) {
             val finalMac = arpMac ?: existing.mac
             val finalVendor = currentVendor ?: existing.vendor ?: (finalMac?.let { OuiVendorLookup.lookup(it) })
-            
+            val finalPorts = (existing.openPorts + dev.openPorts).distinct().sorted()
+            val finalMatches = (existing.securityMatches + dev.securityMatches).distinctBy { it.category to it.matchedOn }
+
             existing.copy(
                 mac = finalMac,
                 hostname = dev.hostname ?: existing.hostname,
-                openPorts = (existing.openPorts + dev.openPorts).distinct().sorted(),
+                openPorts = finalPorts,
                 source = if (existing.source.contains(dev.source)) existing.source
                          else "${existing.source},${dev.source}",
-                vendor = finalVendor
+                vendor = finalVendor,
+                securityMatches = finalMatches
             )
         } else dev.copy(mac = arpMac, vendor = currentVendor)
 
@@ -185,12 +193,19 @@ class DiscoveryCoordinator(private val context: Context) {
         scope.launch {
             val mac = merged.mac ?: "Unknown"
             val vendor = merged.vendor ?: OuiVendorLookup.lookup(mac)
+            
+            // Re-classify security matches with full context
+            val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi(merged.hostname ?: "", vendor)
+            val vulnMatches = SurveillanceDeviceWatchdog.analyzeVulnerabilities(vendor, merged.openPorts)
+            val allMatches = (listOfNotNull(wifiMatch) + vulnMatches).distinctBy { it.category to it.matchedOn }
+
             val networkDevice = NetworkDevice(
                 ip = merged.ip,
                 hostname = merged.hostname ?: "Unknown",
                 mac = mac,
                 vendor = vendor,
-                openPorts = merged.openPorts
+                openPorts = merged.openPorts,
+                securityMatches = allMatches
             )
             _discoveryFlow.emit(DiscoveryResult(
                 ip = merged.ip,

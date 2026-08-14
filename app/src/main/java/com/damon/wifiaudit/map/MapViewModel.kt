@@ -65,14 +65,25 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             try {
-                val allWifi = historyDao.getWifiHistory()
-                val allBle = historyDao.getBleHistory()
                 val sessionFixes = locationDao.getFixesForSession(sessionId)
                 _trackPoints.value = sessionFixes
-
                 val sessionFixIds = sessionFixes.map { it.id }.toSet()
-                _wifiLocations.value = allWifi.filter { it.locationId in sessionFixIds }
-                _bleLocations.value = allBle.filter { it.locationId in sessionFixIds }
+
+                // Load all history and filter for this session
+                val allWifi = historyDao.getWifiHistory()
+                val allBle = historyDao.getBleHistory()
+
+                // De-duplicate: Keep only the strongest sighting for each unique BSSID/MAC in this session
+                _wifiLocations.value = allWifi
+                    .filter { it.locationId in sessionFixIds }
+                    .groupBy { it.bssid }
+                    .map { (_, sightings) -> sightings.maxBy { it.rssi } }
+
+                _bleLocations.value = allBle
+                    .filter { it.locationId in sessionFixIds }
+                    .groupBy { it.macAddress }
+                    .map { (_, sightings) -> sightings.maxBy { it.rssi } }
+
             } catch (e: Exception) {
                 android.util.Log.e("MapVM", "Failed to load session data", e)
             }

@@ -8,8 +8,8 @@ import net.sqlcipher.database.SQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 
 @Database(
-    entities = [ApScanEntity::class, LocationFix::class, WifiSighting::class, BleSighting::class, ScanSession::class],
-    version = 3,
+    entities = [ApScanEntity::class, LocationFix::class, WifiSighting::class, BleSighting::class, ScanSession::class, ApiQueueItem::class],
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -19,6 +19,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bleSightingDao(): BleSightingDao
     abstract fun sightingHistoryDao(): SightingHistoryDao
     abstract fun scanSessionDao(): ScanSessionDao
+    abstract fun apiQueueDao(): ApiQueueDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -35,7 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "wifi_audit_encrypted.db"
                 )
                     .openHelperFactory(factory)
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

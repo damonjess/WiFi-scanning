@@ -73,74 +73,53 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
     }
 
     LaunchedEffect(wifiPoints, blePoints, trackPoints, showTrack) {
+        android.util.Log.d("MapScreen", "Refreshing map: ${wifiPoints.size} WiFi, ${blePoints.size} BLE, ${trackPoints.size} track points")
+        
         // Clear all except our location overlay
         mapView.overlays.removeAll { it !is MyLocationNewOverlay }
 
-        val wifiIcon = createCircleMarker(Color.BLUE)
-        val bleIcon = createCircleMarker(Color.MAGENTA)
-        val warningIcon = createCircleMarker(Color.RED)
-
+        val wifiIcon = createCircleMarker(Color.BLUE, 50)
+        val bleIcon = createCircleMarker(Color.MAGENTA, 50)
+        val warningIcon = createCircleMarker(Color.RED, 60)
+        
+        // Clusterers for different types with increased radius for dense areas
         val wifiClusterer = RadiusMarkerClusterer(context).apply {
-            setRadius(80)
+            setIcon(createCircleMarker(Color.BLUE, 80, true))
+            setRadius(120) // Increased from 80
             textPaint.textSize = 32f
             textPaint.color = Color.WHITE
         }
         val bleClusterer = RadiusMarkerClusterer(context).apply {
-            setRadius(80)
+            setIcon(createCircleMarker(Color.MAGENTA, 80, true))
+            setRadius(120) // Increased from 80
             textPaint.textSize = 32f
             textPaint.color = Color.WHITE
         }
         val watchdogClusterer = RadiusMarkerClusterer(context).apply {
-            setRadius(80)
+            setIcon(createCircleMarker(Color.RED, 90, true))
+            setRadius(120) // Increased from 80
             textPaint.textSize = 32f
             textPaint.color = Color.WHITE
-            // Customizing watchdog cluster to be distinct (e.g. red background)
-            // RadiusMarkerClusterer doesn't have a simple "clusterColor" property in this version,
-            // but the markers inside will be red.
         }
 
         val allPoints = mutableListOf<GeoPoint>()
-
-        // Breadcrumb trail — drawn first so markers layer on top of the line
-        if (showTrack && trackPoints.size >= 2) {
-            val trackGeoPoints = trackPoints.map { GeoPoint(it.latitude, it.longitude) }
-            val polyline = Polyline().apply {
-                setPoints(trackGeoPoints)
-                outlinePaint.color = Color.parseColor("#8000838F") // semi-transparent teal
-                outlinePaint.strokeWidth = 8f
-                outlinePaint.isAntiAlias = true
-            }
-            mapView.overlays.add(polyline)
-
-            // Start marker (green) and end marker (red) so direction of travel is clear
-            val startMarker = Marker(mapView).apply {
-                position = trackGeoPoints.first()
-                title = "Start"
-                snippet = formatTime(trackPoints.first().timestamp)
-                icon = android.graphics.drawable.BitmapDrawable(context.resources, createCircleMarker(Color.GREEN))
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-            }
-            val endMarker = Marker(mapView).apply {
-                position = trackGeoPoints.last()
-                title = "End"
-                snippet = formatTime(trackPoints.last().timestamp)
-                icon = android.graphics.drawable.BitmapDrawable(context.resources, createCircleMarker(Color.RED))
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-            }
-            mapView.overlays.add(startMarker)
-            mapView.overlays.add(endMarker)
-        }
+        val random = java.util.Random()
 
         wifiPoints.forEach { record ->
             val vendor = OuiVendorLookup.lookup(record.bssid)
             val match = SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
-            val geo = GeoPoint(record.latitude, record.longitude)
+            
+            // Add a tiny bit of jitter (approx 1-2 meters) to prevent perfect stacking
+            val latJitter = (random.nextDouble() - 0.5) * 0.00002
+            val lonJitter = (random.nextDouble() - 0.5) * 0.00002
+            val geo = GeoPoint(record.latitude + latJitter, record.longitude + lonJitter)
+            
             allPoints.add(geo)
+            
             val marker = Marker(mapView).apply {
                 position = geo
                 title = if (match != null) "⚠ ${match.category.label}: ${record.ssid}" else "WiFi: ${record.ssid}"
-                snippet = "${record.bssid} • ${record.encryption} • ${record.rssi} dBm" +
-                        (vendor?.let { " • $it" } ?: "")
+                snippet = "${record.bssid} • ${record.encryption} • ${record.rssi} dBm"
                 icon = android.graphics.drawable.BitmapDrawable(
                     context.resources,
                     if (match != null) warningIcon else wifiIcon
@@ -153,13 +132,18 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
         blePoints.forEach { record ->
             val vendor = OuiVendorLookup.lookup(record.macAddress)
             val match = SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
-            val geo = GeoPoint(record.latitude, record.longitude)
+            
+            // Tiny jitter for BLE as well
+            val latJitter = (random.nextDouble() - 0.5) * 0.00002
+            val lonJitter = (random.nextDouble() - 0.5) * 0.00002
+            val geo = GeoPoint(record.latitude + latJitter, record.longitude + lonJitter)
+            
             allPoints.add(geo)
+            
             val marker = Marker(mapView).apply {
                 position = geo
                 title = if (match != null) "⚠ ${match.category.label}: ${record.deviceName ?: record.macAddress}" else "BLE: ${record.deviceName ?: record.macAddress}"
-                snippet = "${record.macAddress} • ${record.rssi} dBm" +
-                        (vendor?.let { " • $it" } ?: "")
+                snippet = "${record.macAddress} • ${record.rssi} dBm"
                 icon = android.graphics.drawable.BitmapDrawable(
                     context.resources,
                     if (match != null) warningIcon else bleIcon
@@ -169,11 +153,9 @@ fun SightingMapScreen(viewModel: MapViewModel = viewModel()) {
             if (match != null) watchdogClusterer.add(marker) else bleClusterer.add(marker)
         }
 
-        if (wifiPoints.isNotEmpty() || blePoints.isNotEmpty()) {
-            if (!wifiClusterer.items.isEmpty()) mapView.overlays.add(wifiClusterer)
-            if (!bleClusterer.items.isEmpty()) mapView.overlays.add(bleClusterer)
-            if (!watchdogClusterer.items.isEmpty()) mapView.overlays.add(watchdogClusterer)
-        }
+        if (!wifiClusterer.items.isEmpty()) mapView.overlays.add(wifiClusterer)
+        if (!bleClusterer.items.isEmpty()) mapView.overlays.add(bleClusterer)
+        if (!watchdogClusterer.items.isEmpty()) mapView.overlays.add(watchdogClusterer)
 
         if (allPoints.isNotEmpty()) {
             if (allPoints.size == 1) {
@@ -282,8 +264,7 @@ private fun formatTime(millis: Long): String {
     return sdf.format(java.util.Date(millis))
 }
 
-private fun createCircleMarker(color: Int): android.graphics.Bitmap {
-    val size = 40
+private fun createCircleMarker(color: Int, size: Int = 40, isCluster: Boolean = false): android.graphics.Bitmap {
     val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bitmap)
     val paint = android.graphics.Paint().apply {
@@ -293,11 +274,19 @@ private fun createCircleMarker(color: Int): android.graphics.Bitmap {
     }
     canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
     
-    // Add a small white border
+    // Add a border
     paint.color = Color.WHITE
     paint.style = android.graphics.Paint.Style.STROKE
-    paint.strokeWidth = 4f
-    canvas.drawCircle(size / 2f, size / 2f, (size / 2f) - 2f, paint)
+    paint.strokeWidth = if (isCluster) 6f else 4f
+    canvas.drawCircle(size / 2f, size / 2f, (size / 2f) - (paint.strokeWidth / 2f), paint)
+    
+    if (isCluster) {
+        // Draw a shadow/outer ring for clusters to make them pop
+        paint.color = color
+        paint.alpha = 100
+        paint.strokeWidth = 4f
+        canvas.drawCircle(size / 2f, size / 2f, (size / 2f) - 1f, paint)
+    }
     
     return bitmap
 }

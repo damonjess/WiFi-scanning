@@ -24,5 +24,6 @@ data class BleSighting(
     val deviceName: String?,
     val rssi: Int,
     val txPower: Int?,
-    val proximityUuid: String?
+    val proximityUuid: String?,
+    val deviceModel: String? = null
 )

@@ -8,7 +8,15 @@ import java.io.InputStreamReader
 
 object OuiVendorLookup {
 
-    private var vendorMap: Map<String, String>? = null
+    data class VendorInfo(
+        val name: String,
+        val prefix: String,
+        val isPrivate: Boolean = false,
+        val blockType: String? = null,
+        val lastUpdate: String? = null
+    )
+
+    private var vendorMap: Map<String, VendorInfo>? = null
     private val lock = Any()
 
     suspend fun initialize(context: Context) {
@@ -16,32 +24,66 @@ object OuiVendorLookup {
         withContext(Dispatchers.IO) {
             synchronized(lock) {
                 if (vendorMap != null) return@withContext
-                val map = HashMap<String, String>(40000)
+                val map = HashMap<String, VendorInfo>(40000)
                 try {
                     context.assets.open("oui.csv").use { stream ->
-                        BufferedReader(InputStreamReader(stream)).forEachLine { line ->
-                            val parts = line.split(",", limit = 2)
-                            if (parts.size == 2) {
-                                map[parts[0].trim().uppercase()] = parts[1].trim()
+                        BufferedReader(InputStreamReader(stream)).use { reader ->
+                            // Skip header
+                            reader.readLine()
+                            reader.forEachLine { line ->
+                                val parts = parseCsvLine(line)
+                                if (parts.size >= 2) {
+                                    val prefix = parts[0].trim().uppercase()
+                                    map[prefix] = VendorInfo(
+                                        name = parts[1].trim().trim('"'),
+                                        prefix = prefix,
+                                        isPrivate = parts.getOrNull(2)?.toBoolean() ?: false,
+                                        blockType = parts.getOrNull(3),
+                                        lastUpdate = parts.getOrNull(4)
+                                    )
+                                }
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    // Missing/malformed asset — lookups will just return null (Unknown)
+                    // Missing/malformed asset
                 }
                 vendorMap = map
             }
         }
     }
 
+    private fun parseCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        var current = StringBuilder()
+        var inQuotes = false
+        for (char in line) {
+            when {
+                char == '"' -> inQuotes = !inQuotes
+                char == ',' && !inQuotes -> {
+                    result.add(current.toString())
+                    current = StringBuilder()
+                }
+                else -> current.append(char)
+            }
+        }
+        result.add(current.toString())
+        return result
+    }
+
     /**
-     * Returns the vendor name, "Randomized address" if the MAC has the
-     * locally-administered bit set (common on modern phones/wearables that
-     * rotate BLE addresses for privacy), or null if genuinely not found
-     * in the OUI table.
+     * Returns the vendor info, "Randomized address" if the MAC has the
+     * locally-administered bit set, or null if not found.
      */
     fun lookup(macAddress: String): String? {
-        if (isRandomizedAddress(macAddress)) return "Randomized address"
+        val info = lookupInfo(macAddress)
+        return info?.name
+    }
+
+    fun lookupInfo(macAddress: String): VendorInfo? {
+        if (isRandomizedAddress(macAddress)) {
+            return VendorInfo("Randomized address", macAddress.take(8))
+        }
         val prefix = macAddress.replace(":", "").replace("-", "").uppercase().take(6)
         return vendorMap?.get(prefix)
     }

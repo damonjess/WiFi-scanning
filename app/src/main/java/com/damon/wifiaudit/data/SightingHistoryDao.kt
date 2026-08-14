@@ -12,6 +12,7 @@ data class WifiSightingRecord(
     val rssi: Int,
     val frequency: Int,
     val encryption: String,
+    val deviceModel: String?,
     val latitude: Double,
     val longitude: Double,
     val timestamp: Long
@@ -25,6 +26,7 @@ data class BleSightingRecord(
     val rssi: Int,
     val txPower: Int?,
     val proximityUuid: String?,
+    val deviceModel: String?,
     val latitude: Double,
     val longitude: Double,
     val timestamp: Long
@@ -34,7 +36,7 @@ data class BleSightingRecord(
 interface SightingHistoryDao {
 
     @Query("""
-        SELECT w.id, l.id as locationId, w.ssid, w.bssid, w.rssi, w.frequency, w.encryption,
+        SELECT w.id, l.id as locationId, w.ssid, w.bssid, w.rssi, w.frequency, w.encryption, w.deviceModel,
                l.latitude, l.longitude, l.timestamp
         FROM wifi_sightings w
         INNER JOIN location_fixes l ON w.locationId = l.id
@@ -43,7 +45,7 @@ interface SightingHistoryDao {
     suspend fun getWifiHistory(): List<WifiSightingRecord>
 
     @Query("""
-        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid,
+        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
                l.latitude, l.longitude, l.timestamp
         FROM ble_sightings b
         INNER JOIN location_fixes l ON b.locationId = l.id
@@ -52,15 +54,16 @@ interface SightingHistoryDao {
     suspend fun getBleHistory(): List<BleSightingRecord>
 
     @Query("""
-        SELECT w.id, l.id as locationId, w.ssid, w.bssid, w.rssi, w.frequency, w.encryption,
-               l.latitude, l.longitude, l.timestamp
+        SELECT w.id, l.id as locationId, w.ssid, w.bssid, w.rssi, w.frequency, w.encryption, w.deviceModel,
+               l.latitude, l.longitude, MAX(l.timestamp) as timestamp
         FROM wifi_sightings w
         INNER JOIN location_fixes l ON w.locationId = l.id
         WHERE (:query = '' OR w.ssid LIKE '%' || :query || '%' OR w.bssid LIKE '%' || :query || '%')
         AND (:encFilter IS NULL OR w.encryption = :encFilter)
+        GROUP BY w.bssid
         ORDER BY
-            CASE WHEN :sortByRssi = 1 THEN w.rssi END DESC,
-            CASE WHEN :sortByRssi = 0 THEN l.timestamp END DESC
+            CASE WHEN :sortByRssi = 1 THEN MAX(w.rssi) END DESC,
+            CASE WHEN :sortByRssi = 0 THEN timestamp END DESC
     """)
     fun pagedWifiHistory(
         query: String,
@@ -69,14 +72,15 @@ interface SightingHistoryDao {
     ): PagingSource<Int, WifiSightingRecord>
 
     @Query("""
-        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid,
-               l.latitude, l.longitude, l.timestamp
+        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
+               l.latitude, l.longitude, MAX(l.timestamp) as timestamp
         FROM ble_sightings b
         INNER JOIN location_fixes l ON b.locationId = l.id
         WHERE (:query = '' OR b.deviceName LIKE '%' || :query || '%' OR b.macAddress LIKE '%' || :query || '%')
+        GROUP BY b.macAddress
         ORDER BY
-            CASE WHEN :sortByRssi = 1 THEN b.rssi END DESC,
-            CASE WHEN :sortByRssi = 0 THEN l.timestamp END DESC
+            CASE WHEN :sortByRssi = 1 THEN MAX(b.rssi) END DESC,
+            CASE WHEN :sortByRssi = 0 THEN timestamp END DESC
     """)
     fun pagedBleHistory(
         query: String,
