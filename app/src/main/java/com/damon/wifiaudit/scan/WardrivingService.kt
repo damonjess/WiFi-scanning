@@ -135,6 +135,7 @@ class WardrivingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+        ScanStatusRepository.setServiceRunning(true)
 
         serviceScope.launch {
             currentSessionId = coordinator.repository.startSession()
@@ -310,6 +311,7 @@ class WardrivingService : Service() {
             try { it.stopScan(bleScanCallback) } catch (e: SecurityException) {}
         }
         unregisterReceiver(wifiReceiver)
+        ScanStatusRepository.setServiceRunning(false)
 
         serviceScope.cancel()
         super.onDestroy()

@@ -7,8 +7,6 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.util.Log
-import com.damon.wifiaudit.data.AppDatabase
-import com.damon.wifiaudit.data.BleRawFragment
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,9 +16,6 @@ class BleScanManager(context: Context) {
 
     private val bluetoothAdapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
-
-    private val db = AppDatabase.getInstance(context)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val _devices = MutableStateFlow<Map<String, BleDeviceInfo>>(emptyMap())
     val devices: StateFlow<Map<String, BleDeviceInfo>> = _devices.asStateFlow()
@@ -47,19 +42,6 @@ class BleScanManager(context: Context) {
     private fun upsertDevice(result: ScanResult) {
         val record = result.scanRecord
         val iBeacon = IBeaconParser.parse(record)
-
-        val rawBytes = record?.bytes
-        if (rawBytes != null) {
-            scope.launch(Dispatchers.IO) {
-                db.bleGattDao().insertRawFragment(
-                    BleRawFragment(
-                        deviceMac = result.device.address,
-                        hexData = rawBytes.toHex(),
-                        rssi = result.rssi
-                    )
-                )
-            }
-        }
 
         val txPower = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE }
 

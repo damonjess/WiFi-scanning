@@ -281,36 +281,6 @@ private fun SubTab(
     }
 }
 
-@Composable
-private fun FilterChipStyled(
-    label: String,
-    isActive: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = if (isActive) CyanAccent.copy(alpha = 0.15f) else DarkSurface,
-        border = BorderStroke(
-            1.dp,
-            if (isActive) CyanAccent.copy(alpha = 0.4f) else DarkSurfaceElevated
-        ),
-        modifier = Modifier.height(32.dp)
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isActive) CyanAccent else TextMuted
-            )
-        }
-    }
-}
-
 private val dateFormat = SimpleDateFormat("MMM d, HH:mm:ss", Locale.getDefault())
 
 @Composable
@@ -456,28 +426,6 @@ private fun BleRecordCard(
                 modifier = Modifier.padding(top = 10.dp)
             )
         }
-    }
-}
-
-@Composable
-private fun SignalBadge(rssi: Int) {
-    val color = when {
-        rssi > -60 -> CyanAccent
-        rssi > -80 -> Color(0xFFFFB300)
-        else -> Color(0xFFFF5252)
-    }
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = color.copy(alpha = 0.15f)
-    ) {
-        Text(
-            text = "$rssi dBm",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = color,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style = TextStyle(fontFeatureSettings = "tnum")
-        )
     }
 }
 

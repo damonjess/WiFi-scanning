@@ -25,6 +25,13 @@ object ScanStatusRepository {
     private val _snapshot = MutableStateFlow(ScanCycleSnapshot())
     val snapshot: StateFlow<ScanCycleSnapshot> = _snapshot.asStateFlow()
 
+    private val _isServiceRunning = MutableStateFlow(false)
+    val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
+
+    fun setServiceRunning(running: Boolean) {
+        _isServiceRunning.value = running
+    }
+
     fun updateLocation(lat: Double, lon: Double) {
         _snapshot.value = _snapshot.value.copy(latitude = lat, longitude = lon)
     }

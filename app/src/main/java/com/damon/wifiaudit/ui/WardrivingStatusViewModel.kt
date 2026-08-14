@@ -18,4 +18,7 @@ class WardrivingStatusViewModel(application: Application) : AndroidViewModel(app
 
     val pendingUploads: StateFlow<Int> = db.apiQueueDao().getPendingCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val isServiceRunning: StateFlow<Boolean> = ScanStatusRepository.isServiceRunning
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 }
