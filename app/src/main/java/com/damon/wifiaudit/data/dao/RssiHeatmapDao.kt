@@ -14,6 +14,9 @@ interface RssiHeatmapDao {
     @Query("SELECT * FROM rssi_heatmap_points WHERE macAddress = :mac ORDER BY timestamp DESC")
     fun getPointsForMac(mac: String): Flow<List<RssiHeatmapPoint>>
 
+    @Query("SELECT * FROM rssi_heatmap_points ORDER BY timestamp DESC")
+    fun getAllPoints(): Flow<List<RssiHeatmapPoint>>
+
     @Query("SELECT * FROM rssi_heatmap_points WHERE macAddress = :mac ORDER BY timestamp DESC LIMIT 500")
     suspend fun getRecentPoints(mac: String): List<RssiHeatmapPoint>
 

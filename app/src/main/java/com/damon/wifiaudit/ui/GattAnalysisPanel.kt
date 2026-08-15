@@ -1,17 +1,21 @@
 package com.damon.wifiaudit.ui
 
 import android.bluetooth.BluetoothGattCharacteristic
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -25,6 +29,7 @@ import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.ui.theme.DarkBackground
 import com.damon.wifiaudit.ui.theme.DarkSurfaceElevated
 import com.damon.wifiaudit.ui.theme.TextMuted
+import java.util.UUID
 
 @Composable
 fun GattAnalysisPanel(
@@ -32,6 +37,7 @@ fun GattAnalysisPanel(
     onAnalyse: () -> Unit,
     onLoadHistoric: () -> Unit,
     db: AppDatabase,
+    gattManager: LightGattManager?,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -138,6 +144,7 @@ fun GattAnalysisPanel(
                             GattServiceCard(
                                 service = service,
                                 db = db,
+                                gattManager = gattManager,
                                 modifier = Modifier.padding(vertical = 6.dp)
                             )
                         }
@@ -204,177 +211,369 @@ fun GattAnalysisPanel(
 fun GattServiceCard(
     service: LightGattManager.BleService,
     db: AppDatabase,
+    gattManager: LightGattManager?,
     modifier: Modifier = Modifier
 ) {
-    val context = BleUuidResolver.serviceContext(service.uuid)
-    val isStandard = remember(service.uuid) { BleUuidResolver.isStandardUuid(service.uuid) }
-    val shortForm = remember(service.uuid) { BleUuidResolver.fullShortForm(service.uuid) }
-    
-    // Database-backed resolution
-    var resolvedName by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    var resolvedName by remember { mutableStateOf(service.name ?: "Unknown Service") }
+
     LaunchedEffect(service.uuid) {
         resolvedName = GattUuidResolver.resolveServiceName(service.uuid, db)
+            ?: service.name
+            ?: service.uuid.toString()
     }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = DarkBackground.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, DarkSurfaceElevated)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A23)),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
+        modifier = modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             // Service header
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(
-                            when (context?.threatLevel) {
-                                BleUuidResolver.ThreatLevel.CRITICAL -> Color(0xFFFF1744)
-                                BleUuidResolver.ThreatLevel.HIGH -> Color(0xFFFF5252)
-                                BleUuidResolver.ThreatLevel.MEDIUM -> Color(0xFFFFB300)
-                                BleUuidResolver.ThreatLevel.LOW -> Color(0xFF76FF03)
-                                else -> Color(0xFF8C9EFF)
-                            }
-                        )
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(Color(0xFF8C9EFF), CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = buildAnnotatedString {
-                            if (context != null) {
-                                append(context.icon + " ")
-                            }
-                            // Priority: Resolved Name > Hardcoded Name > Raw UUID
-                            append(resolvedName ?: BleUuidResolver.serviceName(service.uuid))
-                        },
+                        text = resolvedName,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
-                    // Wardriving context
-                    context?.let {
-                        Text(
-                            it.description,
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            lineHeight = 14.sp,
-                            modifier = Modifier.padding(top = 2.dp)
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF81C784).copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = "0x${service.uuid.toString().take(8).uppercase()}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF81C784),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = service.uuid.toString(),
+                fontSize = 10.sp,
+                color = TextMuted,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(start = 18.dp, top = 4.dp)
+            )
+
+            HorizontalDivider(
+                color = Color.White.copy(alpha = 0.06f),
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+
+            // Characteristics
+            service.characteristics.forEach { char ->
+                InteractiveCharacteristicRow(
+                    characteristic = char,
+                    db = db,
+                    gattManager = gattManager,
+                    serviceUuid = service.uuid
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InteractiveCharacteristicRow(
+    characteristic: LightGattManager.BleCharacteristic,
+    db: AppDatabase,
+    gattManager: LightGattManager?,
+    serviceUuid: UUID
+) {
+    val scope = rememberCoroutineScope()
+    var expanded by remember { mutableStateOf(false) }
+    var resolvedName by remember { mutableStateOf(characteristic.name ?: "Unknown Characteristic") }
+    var showWriteDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(characteristic.uuid) {
+        resolvedName = GattUuidResolver.resolveCharacteristicName(characteristic.uuid, db)
+            ?: characteristic.name
+            ?: characteristic.uuid.toString()
+    }
+
+    val canRead = characteristic.properties and 0x02 != 0
+    val canWrite = characteristic.properties and 0x08 != 0 || characteristic.properties and 0x04 != 0
+    val canNotify = characteristic.properties and 0x10 != 0 || characteristic.properties and 0x20 != 0
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "├─",
+                fontSize = 14.sp,
+                color = TextMuted,
+                modifier = Modifier.padding(end = 8.dp)
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = resolvedName,
+                    fontSize = 13.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = characteristic.uuid.toString(),
+                    fontSize = 9.sp,
+                    color = TextMuted,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 1.dp)
+                )
+            }
+
+            // Property badges
+            Row(modifier = Modifier.padding(end = 8.dp)) {
+                if (canRead) PropertyBadge("R", Color(0xFF81C784))
+                if (canWrite) PropertyBadge("W", Color(0xFF8C9EFF))
+                if (canNotify) PropertyBadge("N", Color(0xFFFFB74D))
+            }
+        }
+
+        // Expanded value + actions
+        AnimatedVisibility(visible = expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp, bottom = 8.dp)
+            ) {
+                // Value display
+                characteristic.value?.let { bytes ->
+                    ValueDisplay(bytes = bytes)
+                } ?: Text(
+                    text = "No data read yet",
+                    fontSize = 12.sp,
+                    color = TextMuted,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+
+                characteristic.lastError?.let { err ->
+                    Text(
+                        text = "⚠️ $err",
+                        fontSize = 11.sp,
+                        color = Color(0xFFFFB74D),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
+
+                // Action buttons
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (canRead) {
+                        ActionButton(
+                            label = "Read",
+                            color = Color(0xFF81C784),
+                            onClick = {
+                                gattManager?.readCharacteristic(serviceUuid, characteristic.uuid)
+                            }
+                        )
+                    }
+                    if (canWrite) {
+                        ActionButton(
+                            label = "Write",
+                            color = Color(0xFF8C9EFF),
+                            onClick = { showWriteDialog = true }
+                        )
+                    }
+                    if (canNotify) {
+                        ActionButton(
+                            label = if (characteristic.isNotifying) "Stop Notify" else "Notify",
+                            color = if (characteristic.isNotifying) Color(0xFFFFB74D) else Color(0xFFFFB74D).copy(alpha = 0.6f),
+                            onClick = {
+                                gattManager?.setNotify(
+                                    serviceUuid,
+                                    characteristic.uuid,
+                                    !characteristic.isNotifying
+                                )
+                            }
                         )
                     }
                 }
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (isStandard) Color(0xFF8C9EFF).copy(alpha = 0.1f) else Color(0xFF76FF03).copy(alpha = 0.1f)
-                ) {
-                    Text(
-                        shortForm,
-                        fontSize = 12.sp,
-                        color = if (isStandard) Color(0xFF8C9EFF) else Color(0xFF76FF03),
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-
-            // Characteristics
-            if (service.characteristics.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                service.characteristics.forEach { char ->
-                    CharRow(char, db)
-                }
             }
         }
     }
-}
 
-@Composable
-private fun CharRow(char: LightGattManager.BleCharacteristic, db: AppDatabase) {
-    val ctx = BleUuidResolver.characteristicContext(char.uuid)
-    val nameFallback = BleUuidResolver.characteristicName(char.uuid)
-    val isStandard = BleUuidResolver.isStandardUuid(char.uuid)
-
-    var resolvedName by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(char.uuid) {
-        resolvedName = GattUuidResolver.resolveCharacteristicName(char.uuid, db)
-    }
-    
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 18.dp, top = 3.dp, bottom = 3.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Text("├─", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
-        Spacer(modifier = Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    buildAnnotatedString {
-                        if (ctx != null) append(ctx.icon + " ")
-                        append(resolvedName ?: nameFallback)
-                    },
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.85f)
-                )
-            }
-            // Only show UUID if it's non-standard (hides clutter)
-            if (!isStandard) {
-                Text(
-                    char.uuid.toString(),
-                    fontSize = 9.sp,
-                    color = TextMuted.copy(alpha = 0.6f),
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            
-            // Show read value if available
-            char.value?.let { valStr ->
-                if (valStr.isNotBlank()) {
-                    Text(
-                        valStr,
-                        fontSize = 12.sp,
-                        color = Color(0xFF8C9EFF),
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
+    if (showWriteDialog) {
+        WriteValueDialog(
+            onDismiss = { showWriteDialog = false },
+            onSubmit = { hexString ->
+                val bytes = hexString.replace(" ", "").chunked(2)
+                    .mapNotNull { it.toIntOrNull(16)?.toByte() }
+                    .toByteArray()
+                if (bytes.isNotEmpty()) {
+                    gattManager?.writeCharacteristic(serviceUuid, characteristic.uuid, bytes)
                 }
             }
-        }
-        Spacer(modifier = Modifier.width(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            if (char.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) {
-                PropertyBadge("R", Color(0xFF81C784))
-            }
-            if (char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
-                PropertyBadge("W", Color(0xFF64B5F6))
-            }
-            if (char.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) {
-                PropertyBadge("N", Color(0xFFFFB74D))
-            }
-            if (char.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) {
-                PropertyBadge("I", Color(0xFFCE93D8))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PropertyBadge(label: String, color: Color) {
-    Surface(
-        shape = RoundedCornerShape(4.dp),
-        color = color.copy(alpha = 0.15f)
-    ) {
-        Text(
-            label,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = color,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
         )
     }
 }
+
+@Composable
+private fun PropertyBadge(text: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = color.copy(alpha = 0.15f),
+        modifier = Modifier.padding(start = 4.dp)
+    ) {
+        Text(
+            text = text,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = color,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
+    }
+}
+
+@Composable
+private fun ActionButton(label: String, color: Color, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.4f)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
+        modifier = Modifier.height(32.dp)
+    ) {
+        Text(label, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ValueDisplay(bytes: ByteArray) {
+    val hex = bytes.joinToString(" ") { "%02X".format(it) }
+    val ascii = bytes.map { if (it.toInt() in 32..126) it.toInt().toChar() else '.' }.joinToString("")
+    val utf8 = try { String(bytes, Charsets.UTF_8) } catch (_: Exception) { null }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = Color.Black.copy(alpha = 0.35f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                text = "HEX",
+                fontSize = 9.sp,
+                color = TextMuted,
+                fontWeight = FontWeight.Bold
+            )
+            SelectionContainer {
+                Text(
+                    text = hex,
+                    fontSize = 12.sp,
+                    color = Color(0xFF8C9EFF),
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 16.sp
+                )
+            }
+
+            if (utf8 != null && utf8.all { it.isPrintable() } && utf8.length > 1) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "UTF-8",
+                    fontSize = 9.sp,
+                    color = TextMuted,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = utf8,
+                    fontSize = 12.sp,
+                    color = Color(0xFF81C784),
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            if (bytes.size <= 16) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "ASCII",
+                    fontSize = 9.sp,
+                    color = TextMuted,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = ascii,
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            Text(
+                text = "${bytes.size} bytes",
+                fontSize = 10.sp,
+                color = TextMuted,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun WriteValueDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1A1A23),
+        title = { Text("Write Hex Value", color = Color.White) },
+        text = {
+            Column {
+                Text(
+                    "Enter hex bytes (e.g. 01 FF A4)",
+                    fontSize = 12.sp,
+                    color = TextMuted
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF0F0F15),
+                        unfocusedContainerColor = Color(0xFF0F0F15),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    textStyle = TextStyle(fontFamily = FontFamily.Monospace)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSubmit(text); onDismiss() }) {
+                Text("Write", color = Color(0xFF8C9EFF))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextMuted)
+            }
+        }
+    )
+}
+
+private fun Char.isPrintable(): Boolean = this.code in 32..126 || this.code == 10 || this.code == 13

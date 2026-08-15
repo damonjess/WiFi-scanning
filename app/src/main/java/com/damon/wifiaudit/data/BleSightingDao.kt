@@ -30,4 +30,14 @@ interface BleSightingDao {
 
     @Query("SELECT * FROM ble_sightings WHERE macAddress = :mac ORDER BY id DESC LIMIT 1")
     suspend fun getLatestForMac(mac: String): BleSighting?
+
+    @Query("""
+        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
+               l.latitude, l.longitude, l.timestamp,
+               ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
+        FROM ble_sightings b
+        INNER JOIN location_fixes l ON b.locationId = l.id
+        ORDER BY l.timestamp DESC
+    """)
+    fun getAllSightings(): Flow<List<BleSightingRecord>>
 }

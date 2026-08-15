@@ -26,4 +26,13 @@ interface WifiSightingDao {
 
     @Query("SELECT COUNT(*) FROM wifi_sightings")
     suspend fun count(): Int
+
+    @Query("""
+        SELECT w.id, l.id as locationId, w.ssid, w.bssid, w.rssi, w.frequency, w.encryption, w.deviceModel,
+               l.latitude, l.longitude, l.timestamp
+        FROM wifi_sightings w
+        INNER JOIN location_fixes l ON w.locationId = l.id
+        ORDER BY l.timestamp DESC
+    """)
+    fun getAllSightings(): Flow<List<WifiSightingRecord>>
 }

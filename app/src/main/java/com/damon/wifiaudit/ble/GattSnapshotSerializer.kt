@@ -18,6 +18,7 @@ object GattSnapshotSerializer {
                 cObj.put("uuid", c.uuid.toString())
                 cObj.put("name", c.name)
                 cObj.put("properties", c.properties)
+                cObj.put("serviceUuid", c.serviceUuid.toString())
                 chars.put(cObj)
             }
             svcObj.put("characteristics", chars)
@@ -31,22 +32,29 @@ object GattSnapshotSerializer {
         val root = JSONArray(json)
         for (i in 0 until root.length()) {
             val svcObj = root.getJSONObject(i)
+            val serviceUuid = UUID.fromString(svcObj.getString("uuid"))
             val chars = mutableListOf<LightGattManager.BleCharacteristic>()
             val charArr = svcObj.getJSONArray("characteristics")
             for (j in 0 until charArr.length()) {
                 val cObj = charArr.getJSONObject(j)
+                val charServiceUuid = if (cObj.has("serviceUuid")) {
+                    UUID.fromString(cObj.getString("serviceUuid"))
+                } else {
+                    serviceUuid
+                }
                 chars.add(
                     LightGattManager.BleCharacteristic(
                         uuid = UUID.fromString(cObj.getString("uuid")),
-                        name = cObj.getString("name"),
-                        properties = cObj.getInt("properties")
+                        name = if (cObj.isNull("name")) null else cObj.optString("name"),
+                        properties = cObj.getInt("properties"),
+                        serviceUuid = charServiceUuid
                     )
                 )
             }
             list.add(
                 LightGattManager.BleService(
-                    uuid = UUID.fromString(svcObj.getString("uuid")),
-                    name = svcObj.getString("name"),
+                    uuid = serviceUuid,
+                    name = if (svcObj.isNull("name")) null else svcObj.optString("name"),
                     characteristics = chars
                 )
             )

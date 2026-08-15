@@ -3,6 +3,7 @@ package com.damon.wifiaudit.data
 import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 data class WifiSightingRecord(
     val id: Long,
@@ -97,6 +98,28 @@ interface SightingHistoryDao {
         sortByRssi: Boolean
     ): PagingSource<Int, BleSightingRecord>
 
+    @Query("""
+        SELECT w.id, l.id as locationId, w.ssid, w.bssid, w.rssi, w.frequency, w.encryption, w.deviceModel,
+               l.latitude, l.longitude, l.timestamp, v.vendorName
+        FROM wifi_sightings w
+        INNER JOIN location_fixes l ON w.locationId = l.id
+        LEFT JOIN oui_vendors v ON v.oui = SUBSTR(REPLACE(REPLACE(REPLACE(UPPER(w.bssid), ':', ''), '-', ''), '.', ''), 1, 6)
+        ORDER BY l.timestamp DESC
+    """)
+    fun getAllWifiSightings(): Flow<List<WifiSightingRecord>>
+
+    @Query("""
+        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
+               l.latitude, l.longitude, l.timestamp, v.vendorName,
+               ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
+        FROM ble_sightings b
+        INNER JOIN location_fixes l ON b.locationId = l.id
+        LEFT JOIN oui_vendors v ON v.oui = SUBSTR(REPLACE(REPLACE(REPLACE(UPPER(b.macAddress), ':', ''), '-', ''), '.', ''), 1, 6)
+        ORDER BY l.timestamp DESC
+    """)
+    fun getAllBleSightings(): Flow<List<BleSightingRecord>>
+
     @Query("SELECT DISTINCT encryption FROM wifi_sightings ORDER BY encryption")
+
     suspend fun getDistinctEncryptionTypes(): List<String>
 }

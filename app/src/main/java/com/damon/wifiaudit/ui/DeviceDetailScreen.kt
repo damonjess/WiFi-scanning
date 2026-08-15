@@ -41,6 +41,7 @@ import com.damon.wifiaudit.ble.GattUuidResolver
 import com.damon.wifiaudit.ble.LightGattManager
 import com.damon.wifiaudit.ble.ParsedAdvertisement
 import com.damon.wifiaudit.data.AppDatabase
+import com.damon.wifiaudit.ui.detail.CreateRuleBottomSheet
 import com.damon.wifiaudit.ui.theme.*
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import org.osmdroid.util.GeoPoint
@@ -54,6 +55,7 @@ fun DeviceDetailScreen(
     macAddress: String,
     deviceType: String, // "WIFI" or "BLE"
     onBack: () -> Unit,
+    onViewMap: (String) -> Unit = {},
     viewModel: DeviceDetailViewModel = viewModel(
         key = macAddress,
         factory = DeviceDetailViewModelFactory(
@@ -70,11 +72,21 @@ fun DeviceDetailScreen(
     val classification by viewModel.classification.collectAsState()
 
     var showHeatmapSheet by remember { mutableStateOf(false) }
+    var showCreateRuleSheet by remember { mutableStateOf(false) }
 
     if (showHeatmapSheet) {
         HeatmapBottomSheet(
             points = heatmapPoints,
             onDismiss = { showHeatmapSheet = false }
+        )
+    }
+
+    if (showCreateRuleSheet) {
+        CreateRuleBottomSheet(
+            mac = macAddress,
+            deviceName = state.name,
+            onDismiss = { showCreateRuleSheet = false },
+            viewModel = viewModel
         )
     }
 
@@ -120,7 +132,7 @@ fun DeviceDetailScreen(
 
             // ── Core Info (Name, MAC, Vendor, RSSI chips) ──
             item {
-                CoreInfoCard(state = state)
+                CoreInfoCard(state = state, onCreateRule = { showCreateRuleSheet = true })
             }
 
             item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -131,7 +143,7 @@ fun DeviceDetailScreen(
                     enabled = heatmapEnabled,
                     pointCount = heatmapPoints.size,
                     onToggle = { viewModel.toggleHeatmap() },
-                    onViewMap = { showHeatmapSheet = true },
+                    onViewMap = { onViewMap(macAddress) },
                     onClear = { viewModel.clearHeatmap() }
                 )
             }
@@ -155,7 +167,8 @@ fun DeviceDetailScreen(
                         state = state,
                         onAnalyse = { viewModel.analyseDevice() },
                         onLoadHistoric = { viewModel.loadHistoricGatt() },
-                        db = viewModel.db
+                        db = viewModel.db,
+                        gattManager = viewModel.gattManager
                     )
                 }
             }
@@ -175,14 +188,27 @@ fun DeviceDetailScreen(
 }
 
 @Composable
-private fun CoreInfoCard(state: DeviceDetailViewModel.UiState) {
+private fun CoreInfoCard(state: DeviceDetailViewModel.UiState, onCreateRule: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = DarkSurface),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            DetailField(label = "Name", value = state.name)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    DetailField(label = "Name", value = state.name)
+                }
+                if (state.macAddress.isNotEmpty()) {
+                    IconButton(onClick = onCreateRule) {
+                        Icon(Icons.Default.AddModerator, "Create Rule", tint = Color(0xFF8C9EFF))
+                    }
+                }
+            }
             DetailField(label = "Address", value = state.macAddress)
             DetailField(label = "Manufacturer", value = state.vendor ?: "Unknown")
             

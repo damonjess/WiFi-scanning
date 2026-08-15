@@ -71,7 +71,8 @@ class DeviceDetailViewModel(
     private val _state = MutableStateFlow(UiState(macAddress = mac))
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private var gattManager: LightGattManager? = null
+    var gattManager: LightGattManager? = null
+        private set
 
     init {
         viewModelScope.launch {
@@ -212,7 +213,7 @@ class DeviceDetailViewModel(
         val remoteDevice = bluetoothManager.adapter?.getRemoteDevice(mac) ?: return
 
         gattManager?.release()
-        gattManager = LightGattManager(getApplication(), remoteDevice, viewModelScope).apply {
+        gattManager = LightGattManager(getApplication(), remoteDevice).apply {
             // Collect state updates
             viewModelScope.launch {
                 state.collect { s ->

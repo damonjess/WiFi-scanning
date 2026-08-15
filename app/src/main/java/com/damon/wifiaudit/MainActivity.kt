@@ -1,5 +1,10 @@
 package com.damon.wifiaudit
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,7 +19,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.damon.wifiaudit.ble.ProximityMonitorService
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.oui.OuiCsvImporter
 import com.damon.wifiaudit.data.oui.StandardGattSeeder
@@ -23,12 +30,29 @@ import com.damon.wifiaudit.ui.AppRoot
 import com.damon.wifiaudit.ui.PermissionGateScreen
 import com.damon.wifiaudit.ui.theme.WiFiAuditTheme
 import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.util.LockManager
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val lockdownReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ProximityMonitorService.ACTION_LOCKDOWN) {
+                LockManager.lock()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         OsmConfig.initialize(applicationContext)
+
+        ContextCompat.registerReceiver(
+            this,
+            lockdownReceiver,
+            IntentFilter(ProximityMonitorService.ACTION_LOCKDOWN),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+
         lifecycleScope.launch {
             OuiVendorLookup.initialize(applicationContext)
             OuiCsvImporter.importIfNeeded(applicationContext)
@@ -40,5 +64,10 @@ class MainActivity : ComponentActivity() {
                 PermissionGateScreen { AppRoot() }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(lockdownReceiver)
     }
 }

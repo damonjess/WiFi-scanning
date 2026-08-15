@@ -114,3 +114,35 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {}
+}
+
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {}
+}
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS proximity_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                name TEXT NOT NULL,
+                targetMac TEXT NOT NULL,
+                ruleType TEXT NOT NULL,
+                rssiThreshold INTEGER,
+                rssiThresholdMax INTEGER,
+                serviceUuid TEXT,
+                characteristicUuid TEXT,
+                writePayloadHex TEXT,
+                showNotification INTEGER NOT NULL DEFAULT 0,
+                lockAppOnExit INTEGER NOT NULL DEFAULT 0,
+                isEnabled INTEGER NOT NULL DEFAULT 1,
+                createdAt INTEGER NOT NULL
+            )
+        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_rules_mac ON proximity_rules(targetMac)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_rules_active ON proximity_rules(isEnabled)")
+    }
+}
+
