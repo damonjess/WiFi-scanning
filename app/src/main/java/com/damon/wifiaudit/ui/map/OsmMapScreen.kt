@@ -48,6 +48,7 @@ fun OsmMapScreen(
     val bleVisible by showBle.collectAsState()
 
     var mapView by remember { mutableStateOf<MapView?>(null) }
+    val isFocusedScan = focusTarget != null
 
     // Init osmdroid once
     LaunchedEffect(Unit) {
@@ -124,6 +125,7 @@ fun OsmMapScreen(
             onScrub = { viewModel.setPlaybackIndex(it) },
             onPlayPause = { viewModel.togglePlayback() },
             isPlaying = viewModel.isPlaying.collectAsState().value,
+            focusedScanLabel = if (isFocusedScan) "Selected scan location" else null,
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
@@ -179,7 +181,7 @@ fun OsmMapScreen(
         )
 
         // Empty state
-        if (allPoints.isEmpty()) {
+        if (allPoints.isEmpty() && !isFocusedScan) {
             Surface(
                 color = Color(0xFF0F0F15).copy(alpha = 0.85f),
                 shape = MaterialTheme.shapes.large,

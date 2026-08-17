@@ -13,6 +13,6 @@ object MacOuiExtractor {
             .replace(":", "")
             .replace("-", "")
             .replace(".", "")
-            .take(6)
+            .take(12)
     }
 }

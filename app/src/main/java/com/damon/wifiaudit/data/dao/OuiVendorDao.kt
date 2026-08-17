@@ -9,10 +9,22 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface OuiVendorDao {
-    @Query("SELECT vendorName FROM oui_vendors WHERE oui = :oui LIMIT 1")
+    @Query("""
+        SELECT vendorName FROM oui_vendors 
+        WHERE oui = SUBSTR(:oui, 1, 9) 
+           OR oui = SUBSTR(:oui, 1, 7) 
+           OR oui = SUBSTR(:oui, 1, 6)
+        ORDER BY LENGTH(oui) DESC LIMIT 1
+    """)
     suspend fun lookupVendor(oui: String): String?
 
-    @Query("SELECT * FROM oui_vendors WHERE oui = :oui LIMIT 1")
+    @Query("""
+        SELECT * FROM oui_vendors 
+        WHERE oui = SUBSTR(:oui, 1, 9) 
+           OR oui = SUBSTR(:oui, 1, 7) 
+           OR oui = SUBSTR(:oui, 1, 6)
+        ORDER BY LENGTH(oui) DESC LIMIT 1
+    """)
     suspend fun lookup(oui: String): OuiVendor?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -20,6 +32,9 @@ interface OuiVendorDao {
 
     @Query("SELECT COUNT(*) FROM oui_vendors")
     suspend fun count(): Int
+
+    @Query("DELETE FROM oui_vendors")
+    suspend fun clearAll()
 
     @Query("SELECT * FROM oui_vendors WHERE vendorName LIKE '%' || :query || '%' LIMIT 50")
     fun searchByVendor(query: String): Flow<List<OuiVendor>>

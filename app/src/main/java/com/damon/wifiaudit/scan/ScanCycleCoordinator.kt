@@ -41,14 +41,15 @@ class ScanCycleCoordinator(
         }
 
         val bleSightings = bleResults.map { d ->
+            val identifiedModel = DeviceModelLookup.identify(d)
             BleSighting(
                 locationId = 0,
                 macAddress = d.macAddress,
-                deviceName = d.deviceName,
+                deviceName = d.deviceName ?: identifiedModel,
                 rssi = d.rssi,
                 txPower = d.txPowerLevel,
                 proximityUuid = d.iBeaconUuid,
-                deviceModel = DeviceModelLookup.identify(d),
+                deviceModel = identifiedModel,
                 scanRecord = d.rawBytes
             )
         }

@@ -22,6 +22,7 @@ fun MapHeader(
     onScrub: (Int?) -> Unit,
     isPlaying: Boolean,
     onPlayPause: () -> Unit,
+    focusedScanLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -39,40 +40,40 @@ fun MapHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Play/Pause
-                    IconButton(onClick = onPlayPause, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White
-                        )
-                    }
+                    if (focusedScanLabel == null) {
+                        IconButton(onClick = onPlayPause, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White
+                            )
+                        }
 
-                    // Scrubber
-                    if (pointCount > 0) {
-                        Slider(
-                            value = (playback ?: (pointCount - 1)).toFloat(),
-                            onValueChange = { onScrub(it.toInt()) },
-                            onValueChangeFinished = { if (!isPlaying) onScrub(null) },
-                            valueRange = 0f..((pointCount - 1).coerceAtLeast(0)).toFloat(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF8C9EFF),
-                                activeTrackColor = Color(0xFF8C9EFF),
-                                inactiveTrackColor = Color.White.copy(alpha = 0.1f)
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
+                        if (pointCount > 0) {
+                            Slider(
+                                value = (playback ?: (pointCount - 1)).toFloat(),
+                                onValueChange = { onScrub(it.toInt()) },
+                                onValueChangeFinished = { if (!isPlaying) onScrub(null) },
+                                valueRange = 0f..((pointCount - 1).coerceAtLeast(0)).toFloat(),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF8C9EFF),
+                                    activeTrackColor = Color(0xFF8C9EFF),
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.1f)
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
 
                     Text(
-                        text = playback?.let { "${it + 1}/$pointCount" } ?: "$pointCount pts",
+                        text = focusedScanLabel ?: playback?.let { "${it + 1}/$pointCount" } ?: "$pointCount pts",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 }
 
-                playback?.let { idx ->
+                if (focusedScanLabel == null) playback?.let { idx ->
                     Text(
                         text = "Showing scan ${idx + 1}",
                         fontSize = 11.sp,

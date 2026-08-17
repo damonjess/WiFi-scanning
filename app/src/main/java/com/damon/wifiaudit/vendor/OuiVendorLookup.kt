@@ -115,12 +115,14 @@ object OuiVendorLookup {
         synchronized(this) {
             if (initialized) return
             
-            // Priority 1: assets/oui.csv
+            // Priority 1: current compact master export. It includes MA-L,
+            // MA-M, MA-S, IAB, and community vendor records without shipping
+            // the larger address-rich CSV format in the APK.
+            loadFromAsset(context, "oui_master.txt", isCsv = false)
+
+            // Priority 2: retain the app's prior CSV as a compatibility fallback.
             loadFromAsset(context, "oui.csv", isCsv = true)
-            
-            // Priority 2: assets/oui.txt (as fallback or supplement)
-            loadFromAsset(context, "oui.txt", isCsv = false)
-            
+
             // Priority 3: Built-in seed fills any remaining gaps
             seed.forEach { (prefix, info) ->
                 cache.putIfAbsent(prefix, info.copy(prefix = prefix))
@@ -174,16 +176,16 @@ object OuiVendorLookup {
         parts.add(current.toString())
 
         if (parts.size < 2) return null
-        val prefix = normalizePrefix(parts[0]) ?: return null
+        val prefix = normalizeAssignmentPrefix(parts[0]) ?: return null
         val name = parts[1].trim().removeSurrounding("\"")
         return prefix to name
     }
 
     private fun parseTxtLine(line: String): Pair<String, String>? {
-        val match = Regex("""^([0-9A-Fa-f]{2})[-:]?([0-9A-Fa-f]{2})[-:]?([0-9A-Fa-f]{2})\s+(.+)$""")
-            .find(line) ?: return null
-        val prefix = (match.groupValues[1] + match.groupValues[2] + match.groupValues[3]).uppercase()
-        val name = match.groupValues[4].trim()
+        val parts = line.trim().split(Regex("\\s+"), limit = 2)
+        if (parts.size < 2) return null
+        val prefix = normalizeAssignmentPrefix(parts[0]) ?: return null
+        val name = parts[1].trim()
         return prefix to name
     }
 
@@ -193,18 +195,36 @@ object OuiVendorLookup {
     /** Returns full vendor metadata or null. */
     fun lookupInfo(macAddress: String?): VendorInfo? {
         if (macAddress.isNullOrBlank()) return null
-        val prefix = normalizePrefix(macAddress) ?: return null
-        // Exact 6-hex prefix
-        return cache[prefix] ?: seed[prefix]
+        val address = normalizeAddress(macAddress) ?: return null
+
+        // Prefer the most specific allocation (MA-S/IAB 36-bit, then MA-M
+        // 28-bit, then the conventional MA-L 24-bit OUI).
+        for (length in EXTENDED_PREFIX_LENGTHS) {
+            val prefix = address.takeIf { it.length >= length }?.take(length)
+            val info = prefix?.let { cache[it] ?: seed[it] }
+            if (info != null) return info
+        }
+        return null
     }
 
-    private fun normalizePrefix(mac: String): String? {
-        val hex = mac.replace(":", "")
-            .replace("-", "")
-            .replace(".", "")
-            .uppercase()
-            .filter { it in '0'..'9' || it in 'A'..'F' }
-        if (hex.length < 6) return null
-        return hex.take(6)
+    private fun normalizeAddress(value: String): String? {
+        val hex = value.uppercase().filter { it in '0'..'9' || it in 'A'..'F' }
+        return hex.takeIf { it.length >= 6 }
     }
+
+    /** Parses `AA:BB:CC`, `AA:BB:CC:D0/28`, and `AA:BB:CC:DD:E0/36`. */
+    private fun normalizeAssignmentPrefix(value: String): String? {
+        val rawPrefix = value.substringBefore('/')
+        val hex = normalizeAddress(rawPrefix) ?: return null
+        val bits = value.substringAfter('/', missingDelimiterValue = "24").toIntOrNull() ?: 24
+        val nibbleLength = when (bits) {
+            24 -> 6
+            28 -> 7
+            36 -> 9
+            else -> 6
+        }
+        return hex.takeIf { it.length >= nibbleLength }?.take(nibbleLength)
+    }
+
+    private val EXTENDED_PREFIX_LENGTHS = intArrayOf(9, 7, 6)
 }

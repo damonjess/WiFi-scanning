@@ -13,6 +13,7 @@ import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WifiSightingRecord
 import com.damon.wifiaudit.data.entity.BleGattSnapshot
 import com.damon.wifiaudit.data.entity.RssiHeatmapPoint
+import com.damon.wifiaudit.scan.ScanStatusRepository
 import com.damon.wifiaudit.util.MacOuiExtractor
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import kotlinx.coroutines.Dispatchers
@@ -63,11 +64,11 @@ class DeviceDetailViewModel(
         val gattState: LightGattManager.State = LightGattManager.State.Disconnected,
         val services: List<LightGattManager.BleService> = emptyList(),
         /** True only while the underlying BLE connection remains available for live operations. */
-        val isGattLive: Boolean = false,
         val gattError: String? = null,
         val hasHistoricGatt: Boolean = false,
         val isConnectable: Boolean = false,
-        val txPower: Int? = null
+        val txPower: Int? = null,
+        val isGattLive: Boolean = false
     )
 
     private val _state = MutableStateFlow(UiState(macAddress = mac))
@@ -124,22 +125,39 @@ class DeviceDetailViewModel(
         heatmapJob?.cancel()
         heatmapJob = viewModelScope.launch {
             while (isActive && _heatmapEnabled.value) {
-                val currentRssi = _state.value.rssi
-                val lat = _state.value.latitude
-                val lng = _state.value.longitude
+                val snapshot = ScanStatusRepository.snapshot.value
+                if (!snapshot.hasUsableLiveLocation()) {
+                    delay(1_000)
+                    continue
+                }
 
-                if (lat != null && lng != null) {
+                // Only plot a point while this exact device is present in the
+                // current scan cycle. A detail screen opened from History must
+                // never manufacture a heatmap by repeating its old location.
+                val currentRssi = when (type) {
+                    "WIFI" -> snapshot.wifiResults.firstOrNull {
+                        it.BSSID.equals(mac, ignoreCase = true)
+                    }?.level
+                    "BLE" -> snapshot.bleDevices.firstOrNull {
+                        it.macAddress.equals(mac, ignoreCase = true)
+                    }?.rssi
+                    else -> null
+                }
+
+                val latitude = snapshot.latitude
+                val longitude = snapshot.longitude
+                if (currentRssi != null && latitude != null && longitude != null) {
                     db.rssiHeatmapDao().insert(
                         RssiHeatmapPoint(
                             macAddress = mac,
                             rssi = currentRssi,
-                            latitude = lat,
-                            longitude = lng,
-                            accuracy = null
+                            latitude = latitude,
+                            longitude = longitude,
+                            accuracy = snapshot.locationAccuracyMeters
                         )
                     )
                 }
-                delay(1000)
+                delay(1_000)
             }
         }
     }

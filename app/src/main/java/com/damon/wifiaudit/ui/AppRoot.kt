@@ -141,6 +141,9 @@ fun AppRoot() {
                     onViewScanLocation = { target ->
                         mapTarget = null
                         scanLocationTarget = target
+                    },
+                    onOpenDeviceDetails = { macAddress, type ->
+                        detailTarget = macAddress to type
                     }
                 )
                 2 -> NetworkScannerScreen()

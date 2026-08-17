@@ -17,7 +17,7 @@ object DeviceModelLookup {
         return matchWifi(ssid, vendor)
     }
 
-    fun identify(ble: BleDeviceInfo): String? {
+    fun identify(ble: BleDeviceInfo): String {
         val name = ble.deviceName?.trim().orEmpty()
         val vendor = ble.vendorName ?: OuiVendorLookup.lookup(ble.macAddress)
         return matchBle(name, vendor, ble)
@@ -72,32 +72,63 @@ object DeviceModelLookup {
         return null
     }
 
-    private fun matchBle(name: String, vendor: String?, ble: BleDeviceInfo): String? {
+    private fun matchBle(name: String, vendor: String?, ble: BleDeviceInfo): String {
         val n = name.lowercase()
         val v = vendor?.lowercase().orEmpty()
 
+        // 1. Precise Product Family Matches
         when {
+            n.contains("airpods") -> return "Apple AirPods"
+            n.contains("jbl") -> return "JBL Audio Device"
+            n.contains("fitbit") || n.contains("garmin") || n.contains("whoop") -> return "Fitness Wearable"
             n.contains("ring") || n.contains("doorbell") -> return "Ring Doorbell"
             n.contains("wyze") -> return "Wyze Device"
             n.contains("arlo") -> return "Arlo Device"
             n.contains("eufy") -> return "Eufy Device"
             n.contains("nest") -> return "Google Nest"
             n.contains("tile") -> return "Tile Tracker"
-            n.contains("airtag") || (v.contains("apple") && ble.iBeaconUuid != null) -> return "Apple AirTag / iBeacon"
+            n.contains("airtag") -> return "Apple AirTag"
             n.contains("xiaomi") || n.contains("mi ") -> return "Xiaomi Device"
-            n.contains("fitbit") || n.contains("garmin") || n.contains("whoop") -> return "Wearable"
-            n.contains("ibeacon") || ble.iBeaconUuid != null -> return "iBeacon"
         }
 
+        // 2. Standard BLE Services (Assigned Numbers)
+        ble.serviceUuids.forEach { uuid ->
+            val serviceName = lookupService(uuid)
+            if (serviceName != null) return serviceName
+        }
+
+        // 3. iBeacon / Eddystone
+        if (ble.iBeaconUuid != null) return "iBeacon"
+        if (n.contains("eddystone")) return "Eddystone Beacon"
+
+        // 4. Known Vendor Prefixes (without a stronger signal)
         when {
-            v.contains("apple") -> return "Apple Device"
-            v.contains("samsung") -> return "Samsung Device"
-            v.contains("google") || v.contains("nest") -> return "Google Device"
-            v.contains("amazon") -> return "Amazon Device"
-            v.contains("espressif") -> return "ESP32/ESP8266"
-            v.contains("ring") || v.contains("amazon technologies") -> return "Ring / Amazon"
+            v.contains("apple") -> return "Apple BLE Device"
+            v.contains("espressif") -> return "ESP32 / IoT Device"
+            v.contains("philips") && v.contains("lighting") -> return "Philips Hue / Lighting Device"
+            v.contains("samsung") -> return "Samsung BLE Device"
+            v.contains("google") -> return "Google BLE Device"
+            v.contains("amazon") -> return "Amazon BLE Device"
         }
 
-        return null
+        // 5. Connectable Status
+        if (ble.isConnectable) return "Connectable BLE Device"
+
+        // 6. Final fallback
+        return "Unidentified BLE Device"
+    }
+
+    private fun lookupService(uuid: String): String? {
+        val shortUuid = uuid.lowercase().substringBefore("-").removePrefix("0000").take(4)
+        return when (shortUuid) {
+            "180d" -> "Heart Rate Monitor"
+            "181a" -> "Environmental Sensor"
+            "1812" -> "Bluetooth Input Device"
+            "1816" -> "Cycling Sensor"
+            "1826" -> "Fitness Machine"
+            "1819" -> "Location/Navigation Sensor"
+            "180f" -> "Battery Service"
+            else -> null
+        }
     }
 }

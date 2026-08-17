@@ -48,6 +48,7 @@ import java.util.*
 fun HistoryScreen(
     viewModel: HistoryViewModel = viewModel(),
     onViewScanLocation: (ScanLocationTarget) -> Unit = {},
+    onOpenDeviceDetails: (macAddress: String, type: String) -> Unit = { _, _ -> },
 ) {
     val selectedTab by viewModel.selectedTab.collectAsState()
     val query by viewModel.searchQuery.collectAsState()
@@ -193,6 +194,7 @@ fun HistoryScreen(
                                         securityMatches = emptyList()
                                     )
                                 },
+                                onOpenDetails = { onOpenDeviceDetails(record.bssid, "WIFI") },
                                 onViewLocation = {
                                     onViewScanLocation(
                                         ScanLocationTarget(
@@ -241,6 +243,7 @@ fun HistoryScreen(
                                         securityMatches = emptyList()
                                     )
                                 },
+                                onOpenDetails = { onOpenDeviceDetails(record.macAddress, "BLE") },
                                 onViewLocation = {
                                     onViewScanLocation(
                                         ScanLocationTarget(
@@ -320,9 +323,10 @@ private val dateFormat = SimpleDateFormat("MMM d, HH:mm:ss", Locale.getDefault()
 private fun WifiRecordCard(
     record: WifiSightingRecord,
     onClick: () -> Unit,
+    onOpenDetails: () -> Unit,
     onViewLocation: () -> Unit,
 ) {
-    val vendor = record.vendorName
+    val vendor = record.vendorName ?: OuiVendorLookup.lookup(record.bssid)
     val watchdogMatch = remember(record.ssid, vendor) {
         SurveillanceDeviceWatchdog.classifyWifi(record.ssid, vendor)
     }
@@ -387,6 +391,7 @@ private fun WifiRecordCard(
                 color = TextMuted,
                 modifier = Modifier.padding(top = 10.dp)
             )
+            DeviceDetailsButton(onClick = onOpenDetails)
             ScanLocationButton(onClick = onViewLocation)
         }
     }
@@ -396,9 +401,10 @@ private fun WifiRecordCard(
 private fun BleRecordCard(
     record: BleSightingRecord,
     onClick: () -> Unit,
+    onOpenDetails: () -> Unit,
     onViewLocation: () -> Unit,
 ) {
-    val vendor = record.vendorName
+    val vendor = record.vendorName ?: OuiVendorLookup.lookup(record.macAddress)
     val watchdogMatch = remember(record.deviceName, vendor) {
         SurveillanceDeviceWatchdog.classifyBle(record.deviceName, vendor)
     }
@@ -454,7 +460,7 @@ private fun BleRecordCard(
                         )
                     }
                 }
-                if (record.deviceModel != null) {
+                if (record.deviceModel != null && !record.deviceModel.equals(record.deviceName, ignoreCase = true)) {
                     InfoChip(text = record.deviceModel, color = CyanAccent, outlined = true)
                 }
                 if (watchdogMatch != null) {
@@ -475,8 +481,25 @@ private fun BleRecordCard(
                 color = TextMuted,
                 modifier = Modifier.padding(top = 10.dp)
             )
+            DeviceDetailsButton(onClick = onOpenDetails)
             ScanLocationButton(onClick = onViewLocation)
         }
+    }
+}
+
+@Composable
+private fun DeviceDetailsButton(onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.padding(top = 6.dp),
+        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF8C9EFF)),
+    ) {
+        Text(
+            text = "Device details & heatmap",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
