@@ -35,7 +35,10 @@ class WifiRfScanService : Service() {
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let { lastKnownLocation = it }
+            result.lastLocation?.let {
+                lastKnownLocation = it
+                ScanStatusRepository.updateLocation(it)
+            }
         }
     }
 
@@ -70,6 +73,7 @@ class WifiRfScanService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+        ScanStatusRepository.setServiceRunning(true)
 
         serviceScope.launch {
             currentSessionId = coordinator.repository.startSession()
@@ -88,11 +92,23 @@ class WifiRfScanService : Service() {
 
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2_000L)
             .setMinUpdateIntervalMillis(1_000L)
+            .setMinUpdateDistanceMeters(2f)
+            .setWaitForAccurateLocation(true)
             .build()
 
         fusedLocationClient.requestLocationUpdates(
             request, locationCallback, mainLooper
         )
+    }
+
+    private fun currentUsableLocation(): Location? {
+        val location = lastKnownLocation ?: return null
+        val ageMillis = System.currentTimeMillis() - location.time
+        return location.takeIf {
+            it.hasAccuracy() &&
+                it.accuracy <= MAXIMUM_COMMIT_ACCURACY_METERS &&
+                ageMillis in 0..MAX_LOCATION_AGE_MILLIS
+        }
     }
 
     private fun startScanLoop() {
@@ -132,7 +148,7 @@ class WifiRfScanService : Service() {
             return
         }
 
-        val loc = lastKnownLocation ?: return
+        val loc = currentUsableLocation() ?: return
         if (currentSessionId < 0) return
 
         serviceScope.launch {
@@ -183,6 +199,7 @@ class WifiRfScanService : Service() {
         bleScanManager.stopScan()
         unregisterReceiver(scanResultsReceiver)
 
+        ScanStatusRepository.setServiceRunning(false)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -191,5 +208,7 @@ class WifiRfScanService : Service() {
 
     companion object {
         private const val NOTIFICATION_ID = 4201
+        private const val MAXIMUM_COMMIT_ACCURACY_METERS = 75f
+        private const val MAX_LOCATION_AGE_MILLIS = 15_000L
     }
 }

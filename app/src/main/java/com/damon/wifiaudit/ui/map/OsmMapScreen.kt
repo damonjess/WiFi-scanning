@@ -34,6 +34,7 @@ fun OsmMapScreen(
     playbackIndex: StateFlow<Int?>,
     showWifi: StateFlow<Boolean>,
     showBle: StateFlow<Boolean>,
+    focusTarget: ScanLocationTarget? = null,
     onPointSelected: (RssiHeatmapPoint) -> Unit,
     onBack: () -> Unit,
     viewModel: com.damon.wifiaudit.map.MapViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -51,6 +52,18 @@ fun OsmMapScreen(
     // Init osmdroid once
     LaunchedEffect(Unit) {
         OsmConfig.initialize(context)
+    }
+
+    // Centre and highlight an individual history observation independently of
+    // any wider device track drawn by the map data source.
+    LaunchedEffect(mapView, focusTarget) {
+        val map = mapView ?: return@LaunchedEffect
+        map.overlays.removeAll(map.overlays.filterIsInstance<FocusedScanOverlay>())
+        focusTarget?.let { target ->
+            map.overlays.add(FocusedScanOverlay(target))
+            map.controller.animateTo(GeoPoint(target.latitude, target.longitude), 19.0, 350L)
+            map.invalidate()
+        }
     }
 
     // Lifecycle handling for MapView
@@ -118,11 +131,13 @@ fun OsmMapScreen(
         MapControls(
             onRecenter = {
                 mapView?.let { mv ->
-                    val pts = allPoints.filter { it.latitude != null && it.longitude != null }
-                    if (pts.isNotEmpty()) {
-                        val avgLat = pts.map { it.latitude!! }.average()
-                        val avgLng = pts.map { it.longitude!! }.average()
-                        mv.controller.animateTo(GeoPoint(avgLat, avgLng), 19.0, 500L)
+                    val target = focusTarget
+                    if (target != null) {
+                        mv.controller.animateTo(GeoPoint(target.latitude, target.longitude), 19.0, 350L)
+                    } else {
+                        allPoints.averageValidGeoPoint()?.let { centre ->
+                            mv.controller.animateTo(centre, 19.0, 500L)
+                        }
                     }
                 }
             },
@@ -136,6 +151,25 @@ fun OsmMapScreen(
                 .align(Alignment.TopEnd)
                 .padding(top = 100.dp, end = 16.dp)
         )
+
+        focusTarget?.let { target ->
+            Surface(
+                color = Color(0xFF1A1A23).copy(alpha = 0.94f),
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 28.dp, start = 16.dp, end = 16.dp)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text("Selected scan location", color = Color(0xFF00E5FF), style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        "${target.displayName}  •  ${target.rssi} dBm",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
 
         // Bottom-right Legend
         SignalLegend(
@@ -184,7 +218,9 @@ private fun updateOverlays(
     map.overlays.removeAll(map.overlays.filterIsInstance<Polyline>())
 
     val visible = playback?.let { idx -> allPoints.take(idx + 1) } ?: allPoints
-    val valid = visible.filter { it.latitude != null && it.longitude != null }
+    val valid = visible.asSequence()
+        .filter { it.latitude != null && it.longitude != null }
+        .toList()
 
     if (valid.isEmpty()) {
         map.invalidate()
@@ -192,10 +228,8 @@ private fun updateOverlays(
     }
 
     // Center map on data if first load
-    if (map.mapCenter.latitude == 0.0 && valid.isNotEmpty()) {
-        val avgLat = valid.map { it.latitude!! }.average()
-        val avgLng = valid.map { it.longitude!! }.average()
-        map.controller.setCenter(GeoPoint(avgLat, avgLng))
+    if (map.mapCenter.latitude == 0.0) {
+        valid.averageValidGeoPoint()?.let(map.controller::setCenter)
     }
 
     // Group by MAC to draw lines and dots
@@ -226,6 +260,52 @@ private fun updateOverlays(
     }
 
     map.invalidate()
+}
+
+/** Calculates a valid map centre in one pass without allocating latitude/longitude lists. */
+private fun List<RssiHeatmapPoint>.averageValidGeoPoint(): GeoPoint? {
+    var latitudeTotal = 0.0
+    var longitudeTotal = 0.0
+    var count = 0
+    for (point in this) {
+        val latitude = point.latitude ?: continue
+        val longitude = point.longitude ?: continue
+        latitudeTotal += latitude
+        longitudeTotal += longitude
+        count++
+    }
+    return if (count == 0) null else GeoPoint(latitudeTotal / count, longitudeTotal / count)
+}
+
+/** Draws a persistent ring around the exact history item chosen by the user. */
+private class FocusedScanOverlay(
+    private val target: ScanLocationTarget,
+) : Overlay() {
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(70, 255, 235, 59)
+    }
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(255, 235, 59)
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+    }
+    private val corePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = if (target.type == ScanLocationTarget.RadioType.WIFI) {
+            android.graphics.Color.rgb(0, 188, 212)
+        } else {
+            android.graphics.Color.rgb(224, 64, 251)
+        }
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow) return
+        val point = mapView.projection.toPixels(GeoPoint(target.latitude, target.longitude), null) ?: return
+        val x = point.x.toFloat()
+        val y = point.y.toFloat()
+        canvas.drawCircle(x, y, 34f, glowPaint)
+        canvas.drawCircle(x, y, 23f, ringPaint)
+        canvas.drawCircle(x, y, 9f, corePaint)
+    }
 }
 
 // --- Custom RSSI Dot Overlay ---

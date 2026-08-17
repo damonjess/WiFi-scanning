@@ -78,11 +78,11 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
                 val svcs = g.services.map { svc ->
                     BleService(
                         uuid = svc.uuid,
-                        name = svc.uuid.toString(), // resolved later in UI
+                        name = GattUuidResolver.serviceFallbackName(svc.uuid),
                         characteristics = svc.characteristics.map { c ->
                             BleCharacteristic(
                                 uuid = c.uuid,
-                                name = null,
+                                name = GattUuidResolver.characteristicFallbackName(c.uuid),
                                 properties = c.properties,
                                 serviceUuid = svc.uuid
                             )

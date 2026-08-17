@@ -26,6 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.damon.wifiaudit.map.MapViewModel
 import com.damon.wifiaudit.ui.map.MapTabScreen
 import com.damon.wifiaudit.ui.map.OsmMapScreen
+import com.damon.wifiaudit.ui.map.ScanLocationTarget
 import com.damon.wifiaudit.ui.rules.RulesScreen
 import com.damon.wifiaudit.util.LockManager
 import com.damon.wifiaudit.ui.theme.CyanAccent
@@ -36,7 +37,8 @@ import com.damon.wifiaudit.ui.theme.TextMuted
 fun AppRoot() {
     var selectedIndex by remember { mutableStateOf(0) }
     var detailTarget by remember { mutableStateOf<Pair<String, String>?>(null) } // (id, "WIFI"|"BLE")
-    var mapTarget by remember { mutableStateOf<String?>(null) } // mac address
+    var mapTarget by remember { mutableStateOf<String?>(null) } // device-wide map route
+    var scanLocationTarget by remember { mutableStateOf<ScanLocationTarget?>(null) }
     val isLocked by LockManager.isLocked.collectAsState()
 
     // LOCK SCREEN
@@ -45,8 +47,11 @@ fun AppRoot() {
         return
     }
 
-    // FULL-SCREEN MAP OVERLAY
-    mapTarget?.let { mac ->
+    // FULL-SCREEN MAP OVERLAY. A history-card selection contributes an exact
+    // coordinate, while the existing detail route continues to show a device’s
+    // broader sighting history.
+    val requestedMapMac = scanLocationTarget?.macAddress ?: mapTarget
+    requestedMapMac?.let { mac ->
         val mapVm: MapViewModel = viewModel()
         LaunchedEffect(mac) {
             mapVm.loadPointsForMac(mac)
@@ -56,8 +61,12 @@ fun AppRoot() {
             playbackIndex = mapVm.playbackIndex,
             showWifi = mapVm.showWifi,
             showBle = mapVm.showBle,
+            focusTarget = scanLocationTarget,
             onPointSelected = { /* Optional */ },
-            onBack = { mapTarget = null },
+            onBack = {
+                mapTarget = null
+                scanLocationTarget = null
+            },
             viewModel = mapVm
         )
         return
@@ -69,7 +78,10 @@ fun AppRoot() {
             macAddress = mac,
             deviceType = type,
             onBack = { detailTarget = null },
-            onViewMap = { mapTarget = it }
+            onViewMap = {
+                scanLocationTarget = null
+                mapTarget = it
+            }
         )
         return
     }
@@ -125,7 +137,12 @@ fun AppRoot() {
                     onWifiClick = { bssid -> detailTarget = bssid to "WIFI" },
                     onBleClick = { mac -> detailTarget = mac to "BLE" }
                 )
-                1 -> HistoryScreen() // your existing or redesigned history
+                1 -> HistoryScreen(
+                    onViewScanLocation = { target ->
+                        mapTarget = null
+                        scanLocationTarget = target
+                    }
+                )
                 2 -> NetworkScannerScreen()
                 3 -> {
                     MapTabScreen(

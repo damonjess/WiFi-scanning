@@ -110,7 +110,7 @@ class WardrivingService : Service() {
         override fun onLocationResult(result: LocationResult) {
             result.lastLocation?.let {
                 lastKnownLocation = it
-                ScanStatusRepository.updateLocation(it.latitude, it.longitude)
+                ScanStatusRepository.updateLocation(it)
             }
         }
     }
@@ -158,8 +158,22 @@ class WardrivingService : Service() {
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         if (!hasFineLocation()) return
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2_000L).build()
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2_000L)
+            .setMinUpdateIntervalMillis(1_000L)
+            .setMinUpdateDistanceMeters(2f)
+            .setWaitForAccurateLocation(true)
+            .build()
         fusedLocationClient.requestLocationUpdates(request, locationCallback, mainLooper)
+    }
+
+    private fun currentUsableLocation(): Location? {
+        val location = lastKnownLocation ?: return null
+        val ageMillis = System.currentTimeMillis() - location.time
+        return location.takeIf {
+            it.hasAccuracy() &&
+                it.accuracy <= MAXIMUM_COMMIT_ACCURACY_METERS &&
+                ageMillis in 0..MAX_LOCATION_AGE_MILLIS
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -201,7 +215,7 @@ class WardrivingService : Service() {
             while (isActive) {
                 delay(15_000L)
                 val snapshot = ScanStatusRepository.snapshot.value
-                val loc = lastKnownLocation ?: continue
+                val loc = currentUsableLocation() ?: continue
                 if (snapshot.wifiResults.isEmpty() && snapshot.bleDevices.isEmpty()) continue
                 if (currentSessionId < 0) continue
 
@@ -285,7 +299,7 @@ class WardrivingService : Service() {
 
     override fun onDestroy() {
         val snapshot = ScanStatusRepository.snapshot.value
-        val loc = lastKnownLocation
+        val loc = currentUsableLocation()
         
         val flushJob = serviceScope.launch {
             // Final flush on stop
@@ -327,5 +341,7 @@ class WardrivingService : Service() {
 
     companion object {
         private const val NOTIFICATION_ID = 4202
+        private const val MAXIMUM_COMMIT_ACCURACY_METERS = 75f
+        private const val MAX_LOCATION_AGE_MILLIS = 15_000L
     }
 }

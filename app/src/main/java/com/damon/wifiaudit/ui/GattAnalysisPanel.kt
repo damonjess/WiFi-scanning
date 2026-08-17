@@ -79,17 +79,31 @@ fun GattAnalysisPanel(
                         }
                     }
                     is LightGattManager.State.Ready -> {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF81C784).copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "${state.services.size} services",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF81C784),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (state.isGattLive) {
+                                    Color(0xFF81C784).copy(alpha = 0.15f)
+                                } else {
+                                    Color(0xFF8C9EFF).copy(alpha = 0.15f)
+                                }
+                            ) {
+                                Text(
+                                    text = if (state.isGattLive) {
+                                        "${state.services.size} services · Live"
+                                    } else {
+                                        "${state.services.size} services · Saved"
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (state.isGattLive) Color(0xFF81C784) else Color(0xFF8C9EFF),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TextButton(onClick = onAnalyse, modifier = Modifier.height(32.dp)) {
+                                Text("Refresh", fontSize = 12.sp)
+                            }
                         }
                     }
                     is LightGattManager.State.Error -> {
@@ -140,11 +154,20 @@ fun GattAnalysisPanel(
                             color = TextMuted
                         )
                     } else {
+                        if (!state.isGattLive) {
+                            Text(
+                                "Saved service table. Refresh to reconnect before reading, writing, or enabling notifications.",
+                                fontSize = 12.sp,
+                                color = TextMuted,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
                         state.services.forEach { service ->
                             GattServiceCard(
                                 service = service,
                                 db = db,
                                 gattManager = gattManager,
+                                isLive = state.isGattLive,
                                 modifier = Modifier.padding(vertical = 6.dp)
                             )
                         }
@@ -212,15 +235,15 @@ fun GattServiceCard(
     service: LightGattManager.BleService,
     db: AppDatabase,
     gattManager: LightGattManager?,
+    isLive: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
-    var resolvedName by remember { mutableStateOf(service.name ?: "Unknown Service") }
+    var resolvedName by remember(service.uuid) {
+        mutableStateOf(service.name ?: GattUuidResolver.serviceFallbackName(service.uuid))
+    }
 
     LaunchedEffect(service.uuid) {
         resolvedName = GattUuidResolver.resolveServiceName(service.uuid, db)
-            ?: service.name
-            ?: service.uuid.toString()
     }
 
     Card(
@@ -255,7 +278,7 @@ fun GattServiceCard(
                     color = Color(0xFF81C784).copy(alpha = 0.12f)
                 ) {
                     Text(
-                        text = "0x${service.uuid.toString().take(8).uppercase()}",
+                        text = GattUuidResolver.displayId(service.uuid),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF81C784),
@@ -283,7 +306,8 @@ fun GattServiceCard(
                     characteristic = char,
                     db = db,
                     gattManager = gattManager,
-                    serviceUuid = service.uuid
+                    serviceUuid = service.uuid,
+                    isLive = isLive
                 )
             }
         }
@@ -295,17 +319,17 @@ private fun InteractiveCharacteristicRow(
     characteristic: LightGattManager.BleCharacteristic,
     db: AppDatabase,
     gattManager: LightGattManager?,
-    serviceUuid: UUID
+    serviceUuid: UUID,
+    isLive: Boolean
 ) {
-    val scope = rememberCoroutineScope()
-    var expanded by remember { mutableStateOf(false) }
-    var resolvedName by remember { mutableStateOf(characteristic.name ?: "Unknown Characteristic") }
-    var showWriteDialog by remember { mutableStateOf(false) }
+    var expanded by remember(characteristic.uuid) { mutableStateOf(false) }
+    var resolvedName by remember(characteristic.uuid) {
+        mutableStateOf(characteristic.name ?: GattUuidResolver.characteristicFallbackName(characteristic.uuid))
+    }
+    var showWriteDialog by remember(characteristic.uuid) { mutableStateOf(false) }
 
     LaunchedEffect(characteristic.uuid) {
         resolvedName = GattUuidResolver.resolveCharacteristicName(characteristic.uuid, db)
-            ?: characteristic.name
-            ?: characteristic.uuid.toString()
     }
 
     val canRead = characteristic.properties and 0x02 != 0
@@ -386,6 +410,7 @@ private fun InteractiveCharacteristicRow(
                         ActionButton(
                             label = "Read",
                             color = Color(0xFF81C784),
+                            enabled = isLive,
                             onClick = {
                                 gattManager?.readCharacteristic(serviceUuid, characteristic.uuid)
                             }
@@ -395,6 +420,7 @@ private fun InteractiveCharacteristicRow(
                         ActionButton(
                             label = "Write",
                             color = Color(0xFF8C9EFF),
+                            enabled = isLive,
                             onClick = { showWriteDialog = true }
                         )
                     }
@@ -402,6 +428,7 @@ private fun InteractiveCharacteristicRow(
                         ActionButton(
                             label = if (characteristic.isNotifying) "Stop Notify" else "Notify",
                             color = if (characteristic.isNotifying) Color(0xFFFFB74D) else Color(0xFFFFB74D).copy(alpha = 0.6f),
+                            enabled = isLive,
                             onClick = {
                                 gattManager?.setNotify(
                                     serviceUuid,
@@ -449,9 +476,10 @@ private fun PropertyBadge(text: String, color: Color) {
 }
 
 @Composable
-private fun ActionButton(label: String, color: Color, onClick: () -> Unit) {
+private fun ActionButton(label: String, color: Color, enabled: Boolean = true, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, color.copy(alpha = 0.4f)),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
@@ -463,8 +491,10 @@ private fun ActionButton(label: String, color: Color, onClick: () -> Unit) {
 
 @Composable
 private fun ValueDisplay(bytes: ByteArray) {
-    val hex = bytes.joinToString(" ") { "%02X".format(it) }
-    val ascii = bytes.map { if (it.toInt() in 32..126) it.toInt().toChar() else '.' }.joinToString("")
+    val hex = bytes.asSequence().joinToString(" ") { "%02X".format(it) }
+    val ascii = bytes.asSequence()
+        .map { if (it.toInt() in 32..126) it.toInt().toChar() else '.' }
+        .joinToString("")
     val utf8 = try { String(bytes, Charsets.UTF_8) } catch (_: Exception) { null }
 
     Surface(

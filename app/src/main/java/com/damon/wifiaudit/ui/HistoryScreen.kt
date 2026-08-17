@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
@@ -35,6 +36,7 @@ import androidx.paging.compose.itemKey
 import com.damon.wifiaudit.data.BleSightingRecord
 import com.damon.wifiaudit.data.WifiSightingRecord
 import com.damon.wifiaudit.scan.NetworkViewModel
+import com.damon.wifiaudit.ui.map.ScanLocationTarget
 import com.damon.wifiaudit.ui.theme.*
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
@@ -43,7 +45,10 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
+fun HistoryScreen(
+    viewModel: HistoryViewModel = viewModel(),
+    onViewScanLocation: (ScanLocationTarget) -> Unit = {},
+) {
     val selectedTab by viewModel.selectedTab.collectAsState()
     val query by viewModel.searchQuery.collectAsState()
     val sortMode by viewModel.sortMode.collectAsState()
@@ -187,6 +192,20 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
                                         openPorts = emptyList(),
                                         securityMatches = emptyList()
                                     )
+                                },
+                                onViewLocation = {
+                                    onViewScanLocation(
+                                        ScanLocationTarget(
+                                            observationId = record.id,
+                                            macAddress = record.bssid,
+                                            type = ScanLocationTarget.RadioType.WIFI,
+                                            displayName = record.ssid.ifBlank { "Hidden WiFi" },
+                                            latitude = record.latitude,
+                                            longitude = record.longitude,
+                                            rssi = record.rssi,
+                                            timestamp = record.timestamp,
+                                        )
+                                    )
                                 }
                             )
                         }
@@ -220,6 +239,20 @@ fun HistoryScreen(viewModel: HistoryViewModel = viewModel()) {
                                         source = "History (BLE)",
                                         openPorts = emptyList(),
                                         securityMatches = emptyList()
+                                    )
+                                },
+                                onViewLocation = {
+                                    onViewScanLocation(
+                                        ScanLocationTarget(
+                                            observationId = record.id,
+                                            macAddress = record.macAddress,
+                                            type = ScanLocationTarget.RadioType.BLE,
+                                            displayName = record.deviceName ?: "Unnamed BLE device",
+                                            latitude = record.latitude,
+                                            longitude = record.longitude,
+                                            rssi = record.rssi,
+                                            timestamp = record.timestamp,
+                                        )
                                     )
                                 }
                             )
@@ -286,7 +319,8 @@ private val dateFormat = SimpleDateFormat("MMM d, HH:mm:ss", Locale.getDefault()
 @Composable
 private fun WifiRecordCard(
     record: WifiSightingRecord,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onViewLocation: () -> Unit,
 ) {
     val vendor = record.vendorName
     val watchdogMatch = remember(record.ssid, vendor) {
@@ -353,6 +387,7 @@ private fun WifiRecordCard(
                 color = TextMuted,
                 modifier = Modifier.padding(top = 10.dp)
             )
+            ScanLocationButton(onClick = onViewLocation)
         }
     }
 }
@@ -360,7 +395,8 @@ private fun WifiRecordCard(
 @Composable
 private fun BleRecordCard(
     record: BleSightingRecord,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onViewLocation: () -> Unit,
 ) {
     val vendor = record.vendorName
     val watchdogMatch = remember(record.deviceName, vendor) {
@@ -439,7 +475,30 @@ private fun BleRecordCard(
                 color = TextMuted,
                 modifier = Modifier.padding(top = 10.dp)
             )
+            ScanLocationButton(onClick = onViewLocation)
         }
+    }
+}
+
+@Composable
+private fun ScanLocationButton(onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.padding(top = 6.dp),
+        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+        colors = ButtonDefaults.textButtonColors(contentColor = CyanAccent),
+    ) {
+        Icon(
+            imageVector = Icons.Default.LocationOn,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = "View scan location",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 

@@ -62,6 +62,8 @@ class DeviceDetailViewModel(
         val lastSeen: Long? = null,
         val gattState: LightGattManager.State = LightGattManager.State.Disconnected,
         val services: List<LightGattManager.BleService> = emptyList(),
+        /** True only while the underlying BLE connection remains available for live operations. */
+        val isGattLive: Boolean = false,
         val gattError: String? = null,
         val hasHistoricGatt: Boolean = false,
         val isConnectable: Boolean = false,
@@ -73,6 +75,7 @@ class DeviceDetailViewModel(
 
     var gattManager: LightGattManager? = null
         private set
+    private var gattStateJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -198,36 +201,52 @@ class DeviceDetailViewModel(
     @SuppressLint("MissingPermission")
     fun analyseDevice() {
         val current = _state.value.gattState
-        if (current is LightGattManager.State.Ready) {
-            // Already connected — disconnect
-            gattManager?.disconnect()
-            _state.value = _state.value.copy(gattState = LightGattManager.State.Disconnected, gattError = null)
-            return
-        }
         if (current is LightGattManager.State.Connecting || current is LightGattManager.State.Discovering) {
-            return // already in progress
+            return // a discovery is already in progress
         }
 
         val bluetoothManager = getApplication<Application>()
             .getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
         val remoteDevice = bluetoothManager.adapter?.getRemoteDevice(mac) ?: return
 
+        // A new analysis is an explicit refresh. Stop observing any prior manager
+        // before replacing it, so a delayed disconnect callback cannot overwrite
+        // a newly discovered GATT snapshot.
+        gattStateJob?.cancel()
         gattManager?.release()
+        _state.value = _state.value.copy(
+            gattState = LightGattManager.State.Connecting,
+            gattError = null,
+            isGattLive = false
+        )
+
         gattManager = LightGattManager(getApplication(), remoteDevice).apply {
-            // Collect state updates
-            viewModelScope.launch {
-                state.collect { s ->
-                    val errorMsg = if (s is LightGattManager.State.Error) s.msg else null
-                    val svcList = (s as? LightGattManager.State.Ready)?.services ?: _state.value.services
+            gattStateJob = viewModelScope.launch {
+                state.collect { managerState ->
+                    val previous = _state.value
+                    val discoveredServices = (managerState as? LightGattManager.State.Ready)?.services
 
-                    _state.value = _state.value.copy(
-                        gattState = s,
-                        gattError = errorMsg,
-                        services = svcList
-                    )
+                    // Peripheral links commonly time out after service discovery.
+                    // Keep the completed table on screen as a cached snapshot; only
+                    // its live-operation status changes until the user refreshes it.
+                    if (managerState is LightGattManager.State.Disconnected && previous.services.isNotEmpty()) {
+                        _state.value = previous.copy(
+                            gattState = LightGattManager.State.Ready(previous.services),
+                            gattError = null,
+                            isGattLive = false,
+                            hasHistoricGatt = true
+                        )
+                    } else {
+                        _state.value = previous.copy(
+                            gattState = managerState,
+                            gattError = (managerState as? LightGattManager.State.Error)?.msg,
+                            services = discoveredServices ?: previous.services,
+                            isGattLive = managerState is LightGattManager.State.Ready
+                        )
+                    }
 
-                    if (s is LightGattManager.State.Ready) {
-                        saveGattSnapshot(svcList)
+                    if (discoveredServices != null) {
+                        saveGattSnapshot(discoveredServices)
                     }
                 }
             }
@@ -262,6 +281,7 @@ class DeviceDetailViewModel(
             _state.value = _state.value.copy(
                 services = services,
                 gattState = LightGattManager.State.Ready(services),
+                isGattLive = false,
                 gattError = null
             )
         }
@@ -273,6 +293,7 @@ class DeviceDetailViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        gattStateJob?.cancel()
         gattManager?.release()
     }
 }

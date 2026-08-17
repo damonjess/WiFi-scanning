@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.damon.wifiaudit.scan.ScanStatusRepository
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -34,7 +35,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-import org.osmdroid.views.overlay.TilesOverlay
+import org.osmdroid.views.overlay.Overlay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,8 +52,18 @@ fun MapTabScreen(
     val showWifi by viewModel.showWifi.collectAsState()
     val showBle by viewModel.showBle.collectAsState()
     val selected by viewModel.selectedPoint.collectAsState()
+    val liveSnapshot by ScanStatusRepository.snapshot.collectAsState()
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    var liveLocationOverlay by remember { mutableStateOf<LiveLocationOverlay?>(null) }
+    var followLiveLocation by remember { mutableStateOf(true) }
+    var initialHistoricViewportApplied by remember { mutableStateOf(false) }
+    var expandedClusterId by remember { mutableStateOf<Long?>(null) }
+    val clusters = remember(wifiPoints, blePoints, showWifi, showBle) {
+        val visibleWifi = (if (showWifi) wifiPoints else emptyList()).filter(::hasValidMapCoordinate)
+        val visibleBle = (if (showBle) blePoints else emptyList()).filter(::hasValidMapCoordinate)
+        buildLocationClusters(visibleWifi + visibleBle)
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showSheet by remember { mutableStateOf(false) }
 
@@ -83,71 +94,87 @@ fun MapTabScreen(
         }
     }
 
-    // Update markers whenever data or filters change
-    LaunchedEffect(wifiPoints, blePoints, showWifi, showBle) {
+    // The collapsed layer draws one numbered marker per recorded location,
+    // rather than every Wi-Fi/BLE reading. This removes thousands of paths and
+    // bitmaps from the render loop, which keeps map pan and zoom responsive.
+    LaunchedEffect(mapViewRef, clusters, expandedClusterId) {
         val map = mapViewRef ?: return@LaunchedEffect
-
-        // CRITICAL FIX: Only remove our overlays, NEVER the TilesOverlay
         val toRemove = map.overlays.filter { it is Marker || it is Polyline }
-        toRemove.forEach { map.overlays.remove(it) }
-
-        val visibleWifi = if (showWifi) wifiPoints else emptyList()
-        val visibleBle = if (showBle) blePoints else emptyList()
-        val allVisible = visibleWifi + visibleBle
-
-        if (allVisible.isEmpty()) {
-            map.postInvalidate()
-            return@LaunchedEffect
+        if (toRemove.isNotEmpty()) {
+            map.overlays.removeAll(toRemove)
         }
 
-        // --- Add WiFi polylines (connect same-MAC sightings in time order) ---
-        visibleWifi.groupBy { it.macAddress }.forEach { (_, pts) ->
-            val sorted = pts.sortedBy { it.timestamp }
-            if (sorted.size > 1) {
-                val line = Polyline(map).apply {
-                    outlinePaint.color = Color(0xFF00BCD4).toArgb()
-                    outlinePaint.strokeWidth = 5f
-                    outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 10f), 0f)
-                    setPoints(sorted.map { GeoPoint(it.latitude, it.longitude) })
-                }
-                map.overlays.add(line)
-            }
-            sorted.forEach { pt ->
-                map.overlays.add(createMarker(map, pt, isWifi = true))
-            }
+        val expandedCluster = clusters.firstOrNull { it.id == expandedClusterId }
+        if (expandedCluster == null && expandedClusterId != null) {
+            expandedClusterId = null
         }
 
-        // --- Add BLE polylines ---
-        visibleBle.groupBy { it.macAddress }.forEach { (_, pts) ->
-            val sorted = pts.sortedBy { it.timestamp }
-            if (sorted.size > 1) {
-                val line = Polyline(map).apply {
-                    outlinePaint.color = Color(0xFFE040FB).toArgb()
-                    outlinePaint.strokeWidth = 5f
-                    outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 10f), 0f)
-                    setPoints(sorted.map { GeoPoint(it.latitude, it.longitude) })
-                }
-                map.overlays.add(line)
+        if (expandedCluster != null) {
+            val expandedPoints = expandedCluster.points
+                .asSequence()
+                .sortedByDescending { it.rssi }
+                .take(MAX_EXPANDED_MARKERS)
+                .toList()
+            expandedPoints.forEachIndexed { index, point ->
+                map.overlays.add(
+                    createMarker(
+                        map = map,
+                        pt = point,
+                        isWifi = point.type == MapViewModel.PointType.WIFI,
+                        displayPosition = spiderfyPosition(expandedCluster, index, expandedPoints.size),
+                    )
+                )
             }
-            sorted.forEach { pt ->
-                map.overlays.add(createMarker(map, pt, isWifi = false))
+        } else {
+            clusters.take(MAX_VISIBLE_CLUSTERS).forEach { cluster ->
+                map.overlays.add(createClusterMarker(map, cluster) {
+                    expandedClusterId = cluster.id
+                    val centre = GeoPoint(cluster.latitude, cluster.longitude)
+                    map.controller.animateTo(centre, map.zoomLevelDouble.coerceAtLeast(EXPANDED_CLUSTER_ZOOM), 250L)
+                })
             }
         }
 
-        // --- Fit map to show all markers ---
-        val lats = allVisible.map { it.latitude }
-        val lngs = allVisible.map { it.longitude }
-        val box = BoundingBox(
-            lats.maxOrNull() ?: 0.0,
-            lngs.maxOrNull() ?: 0.0,
-            lats.minOrNull() ?: 0.0,
-            lngs.minOrNull() ?: 0.0
-        )
-        map.post {
-            map.zoomToBoundingBox(box, true, 100, 18.0, 1000L)
+        // Fit historical data only once. Later database updates must never pull
+        // the camera away from the user while they navigate the map.
+        if (!initialHistoricViewportApplied && clusters.isNotEmpty()) {
+            initialHistoricViewportApplied = true
+            val bounds = BoundingBox(
+                clusters.maxOf { it.latitude },
+                clusters.maxOf { it.longitude },
+                clusters.minOf { it.latitude },
+                clusters.minOf { it.longitude }
+            )
+            map.post { map.zoomToBoundingBox(bounds, true, 100, 18.0, 500L) }
         }
-
         map.postInvalidate()
+    }
+
+    // Follow the actual validated GPS fix from the running scanner. Historical
+    // scan markers are never used for this action, so Locate Me cannot snap to
+    // an old home-address observation.
+    LaunchedEffect(
+        mapViewRef,
+        liveSnapshot.latitude,
+        liveSnapshot.longitude,
+        liveSnapshot.locationTimeMillis,
+        followLiveLocation
+    ) {
+        val map = mapViewRef ?: return@LaunchedEffect
+        if (!liveSnapshot.hasUsableLiveLocation()) return@LaunchedEffect
+
+        val point = GeoPoint(liveSnapshot.latitude!!, liveSnapshot.longitude!!)
+        map.post {
+            val overlay = liveLocationOverlay ?: LiveLocationOverlay().also {
+                map.overlays.add(it)
+                liveLocationOverlay = it
+            }
+            overlay.position = point
+            if (followLiveLocation) {
+                map.controller.animateTo(point, map.zoomLevelDouble.coerceAtLeast(17.0), 350L)
+            }
+            map.invalidate()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -226,13 +253,19 @@ fun MapTabScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MapControlButton(Icons.Default.MyLocation) {
-                val all = wifiPoints + blePoints
-                if (all.isNotEmpty()) {
-                    val lats = all.map { it.latitude }
-                    val lngs = all.map { it.longitude }
-                    val box = BoundingBox(lats.max(), lngs.max(), lats.min(), lngs.min())
-                    mapViewRef?.post { mapViewRef?.zoomToBoundingBox(box, true, 120, 19.0, 800L) }
+                followLiveLocation = true
+                if (liveSnapshot.hasUsableLiveLocation()) {
+                    val point = GeoPoint(liveSnapshot.latitude!!, liveSnapshot.longitude!!)
+                    val map = mapViewRef
+                    if (map != null) {
+                        map.post {
+                            map.controller.animateTo(point, map.zoomLevelDouble.coerceAtLeast(17.0), 350L)
+                        }
+                    }
                 }
+            }
+            if (expandedClusterId != null) {
+                MapControlButton(Icons.Default.Close) { expandedClusterId = null }
             }
             MapControlButton(Icons.Default.Add) { mapViewRef?.controller?.zoomIn() }
             MapControlButton(Icons.Default.Remove) { mapViewRef?.controller?.zoomOut() }
@@ -296,10 +329,168 @@ fun MapTabScreen(
     }
 }
 
+private const val MAX_VISIBLE_CLUSTERS = 350
+private const val MAX_EXPANDED_MARKERS = 120
+private const val EXPANDED_CLUSTER_ZOOM = 18.0
+private const val METERS_PER_DEGREE_LATITUDE = 111_320.0
+
+private data class LocationCluster(
+    val id: Long,
+    val latitude: Double,
+    val longitude: Double,
+    val points: List<MapViewModel.MapPoint>,
+) {
+    val wifiCount: Int get() = points.count { it.type == MapViewModel.PointType.WIFI }
+    val bleCount: Int get() = points.size - wifiCount
+    val strongestPoint: MapViewModel.MapPoint get() = points.maxBy { it.rssi }
+}
+
+private fun hasValidMapCoordinate(point: MapViewModel.MapPoint): Boolean =
+    point.latitude in -90.0..90.0 && point.longitude in -180.0..180.0
+
+/**
+ * A scan cycle stores all radio observations under the same location ID. Group
+ * by that ID so a numbered marker represents a real capture location, not an
+ * arbitrary screen-space bucket that changes while a user is panning.
+ */
+private fun buildLocationClusters(points: List<MapViewModel.MapPoint>): List<LocationCluster> =
+    points.groupBy { it.locationId }
+        .map { (locationId, locationPoints) ->
+            val latest = locationPoints.maxBy { it.timestamp }
+            LocationCluster(
+                id = locationId,
+                latitude = latest.latitude,
+                longitude = latest.longitude,
+                points = locationPoints,
+            )
+        }
+        .sortedByDescending { it.points.maxOf { point -> point.timestamp } }
+
+private fun createClusterMarker(
+    map: MapView,
+    cluster: LocationCluster,
+    onExpand: () -> Unit,
+): Marker = Marker(map).apply {
+    position = GeoPoint(cluster.latitude, cluster.longitude)
+    icon = createClusterIcon(map.context, cluster)
+    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+    title = buildString {
+        append("${cluster.points.size} readings")
+        append(" • ${cluster.wifiCount} WiFi")
+        append(" • ${cluster.bleCount} BLE")
+        append("\\nTap to expand this location")
+    }
+    setOnMarkerClickListener { _, _ ->
+        onExpand()
+        true
+    }
+}
+
+private fun createClusterIcon(context: Context, cluster: LocationCluster): BitmapDrawable {
+    val diameter = 76
+    val bitmap = Bitmap.createBitmap(diameter, diameter, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = clusterColor(cluster)
+    }
+    val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = if (cluster.points.size >= 100) 22f else 28f
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    val centre = diameter / 2f
+    canvas.drawCircle(centre, centre, 34f, fillPaint)
+    canvas.drawCircle(centre, centre, 34f, ringPaint)
+    val baseline = centre - (textPaint.ascent() + textPaint.descent()) / 2f
+    canvas.drawText(cluster.points.size.toString(), centre, baseline, textPaint)
+    return BitmapDrawable(context.resources, bitmap)
+}
+
+private fun clusterColor(cluster: LocationCluster): Int {
+    // The cluster colour remains data-driven: it is the radio type and signal
+    // band of the strongest observation captured at that GPS location.
+    val strongest = cluster.strongestPoint
+    return markerColor(
+        rssi = strongest.rssi,
+        isWifi = strongest.type == MapViewModel.PointType.WIFI,
+    ).toArgb()
+}
+
+private fun markerColor(rssi: Int, isWifi: Boolean): Color = if (isWifi) {
+    when {
+        rssi >= -50 -> Color(0xFF00E676)
+        rssi >= -70 -> Color(0xFF00BCD4)
+        else -> Color(0xFF01579B)
+    }
+} else {
+    when {
+        rssi >= -50 -> Color(0xFFEA80FC)
+        rssi >= -70 -> Color(0xFFE040FB)
+        else -> Color(0xFFAA00FF)
+    }
+}
+
+/** Renders the device’s current GPS position independently of scan markers. */
+private class LiveLocationOverlay : Overlay() {
+    var position: GeoPoint? = null
+
+    private val accuracyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(48, 33, 150, 243)
+    }
+    private val corePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(33, 150, 243)
+    }
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow) return
+        val currentPosition = position ?: return
+        val pixel = mapView.projection.toPixels(currentPosition, null) ?: return
+        canvas.drawCircle(pixel.x.toFloat(), pixel.y.toFloat(), 26f, accuracyPaint)
+        canvas.drawCircle(pixel.x.toFloat(), pixel.y.toFloat(), 10f, corePaint)
+        canvas.drawCircle(pixel.x.toFloat(), pixel.y.toFloat(), 10f, outlinePaint)
+    }
+}
+
+/**
+ * Spreads individual readings in a compact radial layout around their shared
+ * GPS fix. The data remains tied to the original coordinate in the detail
+ * sheet, while the visual offset makes each coloured reading tappable.
+ */
+private fun spiderfyPosition(cluster: LocationCluster, index: Int, total: Int): GeoPoint {
+    if (total <= 1) return GeoPoint(cluster.latitude, cluster.longitude)
+
+    val markersPerRing = 12
+    val ring = index / markersPerRing
+    val slot = index % markersPerRing
+    val slotsInRing = minOf(markersPerRing, total - ring * markersPerRing)
+    val angle = (2.0 * Math.PI * slot / slotsInRing) + (ring * 0.45)
+    val radiusMeters = 8.0 + ring * 5.0
+    val latitudeOffset = radiusMeters * kotlin.math.cos(angle) / METERS_PER_DEGREE_LATITUDE
+    val longitudeScale = METERS_PER_DEGREE_LATITUDE * kotlin.math.cos(Math.toRadians(cluster.latitude))
+    val longitudeOffset = radiusMeters * kotlin.math.sin(angle) / longitudeScale.coerceAtLeast(1.0)
+    return GeoPoint(cluster.latitude + latitudeOffset, cluster.longitude + longitudeOffset)
+}
+
 // --- Marker factory ---
-private fun createMarker(map: MapView, pt: MapViewModel.MapPoint, isWifi: Boolean): Marker {
+private fun createMarker(
+    map: MapView,
+    pt: MapViewModel.MapPoint,
+    isWifi: Boolean,
+    displayPosition: GeoPoint = GeoPoint(pt.latitude, pt.longitude),
+): Marker {
     return Marker(map).apply {
-        position = GeoPoint(pt.latitude, pt.longitude)
+        position = displayPosition
         icon = createRssiDot(map.context, pt.rssi, isWifi)
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         title = "${pt.name}\n${pt.macAddress}\n${pt.rssi} dBm"
@@ -332,19 +523,7 @@ private fun createRssiDot(context: Context, rssi: Int, isWifi: Boolean): BitmapD
     val canvas = Canvas(bitmap)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    val color = if (isWifi) {
-        when {
-            rssi >= -50 -> Color(0xFF00E676)
-            rssi >= -70 -> Color(0xFF00BCD4)
-            else -> Color(0xFF01579B)
-        }
-    } else {
-        when {
-            rssi >= -50 -> Color(0xFFEA80FC)
-            rssi >= -70 -> Color(0xFFE040FB)
-            else -> Color(0xFFAA00FF)
-        }
-    }
+    val color = markerColor(rssi, isWifi)
 
     paint.color = color.copy(alpha = 0.3f).toArgb()
     canvas.drawCircle(size / 2f, size / 2f, size / 2f - 2f, paint)
@@ -409,6 +588,12 @@ private fun CompactLegend(modifier: Modifier = Modifier) {
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("BLE", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
                     }
+                    Text(
+                        "Numbered dots group readings. Tap one to expand.",
+                        fontSize = 10.sp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
             }
         }

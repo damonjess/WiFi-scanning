@@ -60,6 +60,7 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
     private fun WifiSightingRecord.toMapPoint(): MapPoint {
         return MapPoint(
             id = id,
+            locationId = locationId,
             macAddress = bssid,
             name = if (ssid.isBlank()) "Hidden WiFi" else ssid,
             rssi = rssi,
@@ -73,6 +74,7 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
     private fun BleSightingRecord.toMapPoint(): MapPoint {
         return MapPoint(
             id = id,
+            locationId = locationId,
             macAddress = macAddress,
             name = deviceName ?: "Unknown BLE",
             rssi = rssi,
@@ -89,6 +91,7 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
 
     data class MapPoint(
         val id: Long,
+        val locationId: Long,
         val macAddress: String,
         val name: String,
         val rssi: Int,
