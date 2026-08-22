@@ -23,6 +23,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
+        android:name=".WifiAuditApplication"
         android:allowBackup="true"
         android:hardwareAccelerated="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

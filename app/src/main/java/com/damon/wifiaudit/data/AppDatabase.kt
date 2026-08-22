@@ -14,8 +14,7 @@ import com.damon.wifiaudit.data.entity.OuiVendor
 import com.damon.wifiaudit.data.entity.ProximityRule
 import com.damon.wifiaudit.data.entity.RssiHeatmapPoint
 import com.damon.wifiaudit.data.entity.StandardGattUuid
-import net.sqlcipher.database.SQLiteDatabase
-import net.sqlcipher.database.SupportFactory
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
     entities = [
@@ -46,9 +45,11 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                SQLiteDatabase.loadLibs(context)
+                // sqlcipher-android ships 16 KB-page-compatible native libraries.
+                // Loading it explicitly must happen before Room opens the encrypted database.
+                System.loadLibrary("sqlcipher")
                 val passphrase = SecureKeyProvider.getOrCreateDbPassphrase(context)
-                val factory = SupportFactory(passphrase)
+                val factory = SupportOpenHelperFactory(passphrase)
 
                 Room.databaseBuilder(
                     context.applicationContext,
