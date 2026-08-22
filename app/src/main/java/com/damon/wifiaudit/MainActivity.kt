@@ -30,8 +30,11 @@ import com.damon.wifiaudit.ui.AppRoot
 import com.damon.wifiaudit.ui.PermissionGateScreen
 import com.damon.wifiaudit.ui.theme.WiFiAuditTheme
 import com.damon.wifiaudit.vendor.OuiVendorLookup
+import android.util.Log
 import com.damon.wifiaudit.util.LockManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val lockdownReceiver = object : BroadcastReceiver() {
@@ -54,10 +57,16 @@ class MainActivity : ComponentActivity() {
         )
 
         lifecycleScope.launch {
-            OuiVendorLookup.initialize(applicationContext)
-            OuiCsvImporter.importIfNeeded(applicationContext)
-            val db = AppDatabase.getInstance(applicationContext)
-            StandardGattSeeder.seedIfNeeded(db)
+            try {
+                withContext(Dispatchers.IO) {
+                    OuiVendorLookup.initialize(applicationContext)
+                    OuiCsvImporter.importIfNeeded(applicationContext)
+                    val db = AppDatabase.getInstance(applicationContext)
+                    StandardGattSeeder.seedIfNeeded(db)
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to initialize dependencies", e)
+            }
         }
         setContent {
             WiFiAuditTheme {

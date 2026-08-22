@@ -42,28 +42,67 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
+        private var libraryLoaded = false
 
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                // sqlcipher-android ships 16 KB-page-compatible native libraries.
-                // Loading it explicitly must happen before Room opens the encrypted database.
-                System.loadLibrary("sqlcipher")
+                if (!libraryLoaded) {
+                    try {
+                        // sqlcipher-android ships 16 KB-page-compatible native libraries.
+                        // Loading it explicitly must happen before Room opens the encrypted database.
+                        System.loadLibrary("sqlcipher")
+                        libraryLoaded = true
+                    } catch (e: UnsatisfiedLinkError) {
+                        throw RuntimeException(
+                            "Failed to load SQLCipher native library. " +
+                            "Ensure you are using net.zetetic:sqlcipher-android:4.6.1+ " +
+                            "and that the APK includes the native .so for this device's ABI.",
+                            e
+                        )
+                    }
+                }
                 val passphrase = SecureKeyProvider.getOrCreateDbPassphrase(context)
                 val factory = SupportOpenHelperFactory(passphrase)
 
-                Room.databaseBuilder(
+                val builder = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "wifi_audit_encrypted.db"
                 )
                     .openHelperFactory(factory)
                     .addMigrations(
-                        MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, 
+                        MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
                     )
-                    .build()
-                    .also { INSTANCE = it }
+                    .fallbackToDestructiveMigration()
+
+                val db = builder.build()
+                
+                // Validate encryption key by attempting to open the database.
+                // If the key is wrong (e.g. after Keystore reset or corruption),
+                // we must delete the unreadable file to allow a fresh start.
+                try {
+                    db.openHelper.writableDatabase
+                } catch (e: Exception) {
+                    if (e.message?.contains("file is not a database") == true ||
+                        e.message?.contains("file is encrypted") == true) {
+                        context.deleteDatabase("wifi_audit_encrypted.db")
+                        // Return a new instance after cleanup
+                        return Room.databaseBuilder(
+                            context.applicationContext,
+                            AppDatabase::class.java,
+                            "wifi_audit_encrypted.db"
+                        )
+                            .openHelperFactory(factory)
+                            .fallbackToDestructiveMigration()
+                            .build()
+                            .also { INSTANCE = it }
+                    }
+                    throw e
+                }
+
+                db.also { INSTANCE = it }
             }
         }
     }

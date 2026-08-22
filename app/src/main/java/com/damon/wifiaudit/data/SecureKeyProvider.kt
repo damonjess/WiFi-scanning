@@ -16,27 +16,42 @@ object SecureKeyProvider {
     private const val KEY_ALIAS = "db_passphrase"
 
     fun getOrCreateDbPassphrase(context: Context): ByteArray {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+        try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-        val prefs = EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+            val prefs = EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
 
-        val existing = prefs.getString(KEY_ALIAS, null)
-        if (existing != null) {
-            return android.util.Base64.decode(existing, android.util.Base64.NO_WRAP)
+            val existing = prefs.getString(KEY_ALIAS, null)
+            if (existing != null) {
+                return android.util.Base64.decode(existing, android.util.Base64.NO_WRAP)
+            }
+
+            val newKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+            prefs.edit()
+                .putString(KEY_ALIAS, android.util.Base64.encodeToString(newKey, android.util.Base64.NO_WRAP))
+                .apply()
+            return newKey
+        } catch (e: Exception) {
+            android.util.Log.e("SecureKeyProvider", "EncryptedSharedPreferences corruption detected, resetting", e)
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+            
+            // If we reset the key, the existing encrypted database is toast.
+            try {
+                context.deleteDatabase("wifi_audit_encrypted.db")
+            } catch (ex: Exception) {
+                // Ignore failure to delete
+            }
+
+            // Recurse once to regenerate
+            return getOrCreateDbPassphrase(context)
         }
-
-        val newKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        prefs.edit()
-            .putString(KEY_ALIAS, android.util.Base64.encodeToString(newKey, android.util.Base64.NO_WRAP))
-            .apply()
-        return newKey
     }
 }

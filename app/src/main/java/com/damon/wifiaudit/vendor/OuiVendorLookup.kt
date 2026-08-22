@@ -115,13 +115,17 @@ object OuiVendorLookup {
         synchronized(this) {
             if (initialized) return
             
-            // Priority 1: current compact master export. It includes MA-L,
-            // MA-M, MA-S, IAB, and community vendor records without shipping
-            // the larger address-rich CSV format in the APK.
-            loadFromAsset(context, "oui_master.txt", isCsv = false)
+            try {
+                // Priority 1: current compact master export. It includes MA-L,
+                // MA-M, MA-S, IAB, and community vendor records without shipping
+                // the larger address-rich CSV format in the APK.
+                loadFromAsset(context, "oui_master.txt", isCsv = false)
 
-            // Priority 2: retain the app's prior CSV as a compatibility fallback.
-            loadFromAsset(context, "oui.csv", isCsv = true)
+                // Priority 2: retain the app's prior CSV as a compatibility fallback.
+                loadFromAsset(context, "oui.csv", isCsv = true)
+            } catch (e: Exception) {
+                Log.e("OuiVendorLookup", "Failed to load OUI assets", e)
+            }
 
             // Priority 3: Built-in seed fills any remaining gaps
             seed.forEach { (prefix, info) ->

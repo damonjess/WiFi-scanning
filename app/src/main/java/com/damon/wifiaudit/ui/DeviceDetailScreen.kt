@@ -348,52 +348,49 @@ private fun DeviceHeader(
     state: DeviceDetailViewModel.UiState,
     classification: String?
 ) {
-    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxWidth()) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp),
+                .height(120.dp),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = DarkSurface)
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 if (state.latitude != null && state.longitude != null) {
-                    val mapView = remember {
-                        MapView(context).apply {
-                            setMultiTouchControls(false)
-                            controller.setZoom(17.0)
-                            controller.setCenter(GeoPoint(state.latitude!!, state.longitude!!))
-                        }
-                    }
-                    DisposableEffect(Unit) {
-                        mapView.onResume()
-                        onDispose {
-                            mapView.onPause()
-                            mapView.onDetach()
-                        }
-                    }
-                    AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-
-                    // Green dot pin
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .align(Alignment.Center)
-                            .background(Color(0xFF76FF03).copy(alpha = 0.25f), CircleShape)
-                            .border(1.5.dp, Color(0xFF76FF03), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(Color(0xFF76FF03), CircleShape)
-                        )
-                    }
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color(0xFF76FF03),
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = String.format(Locale.US, "%.6f, %.6f", state.latitude, state.longitude),
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Last seen location",
+                        color = TextMuted,
+                        fontSize = 12.sp
+                    )
                 } else {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No location data", color = TextMuted)
-                    }
+                    Icon(
+                        Icons.Default.LocationOff,
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("No location data", color = TextMuted)
                 }
             }
         }
