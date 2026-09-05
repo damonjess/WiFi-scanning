@@ -19,18 +19,26 @@ fun TargetedDevicesScreen() {
     val context = LocalContext.current
     val dao = remember { AppDatabase.getInstance(context).targetDeviceDao() }
     
-    val tabs = listOf("Trackers" to "TRACKER", "Smart Home" to "SMART_HOME", "Auto" to "AUTO", "IoT/Dev" to "IOT")
+    // Added "Cameras" to handle Ring, Wyze, Arlo
+    val tabs = listOf(
+        "Cameras" to "CAMERA", 
+        "Trackers" to "TRACKER", 
+        "Smart Home" to "SMART_HOME", 
+        "Auto" to "AUTO", 
+        "IoT/Dev" to "IOT"
+    )
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     
-    // Automatically observe the database for the currently selected category
     val currentCategory = tabs[selectedTabIndex].second
     val devices by dao.getByCategory(currentCategory).collectAsState(initial = emptyList())
 
     Column(modifier = Modifier.fillMaxSize().padding(top = 32.dp)) {
-        TabRow(
+        // Changed to ScrollableTabRow to prevent text squishing
+        ScrollableTabRow(
             selectedTabIndex = selectedTabIndex,
             containerColor = Color.Transparent,
-            contentColor = Color(0xFF8C9EFF)
+            contentColor = Color(0xFF8C9EFF),
+            edgePadding = 16.dp
         ) {
             tabs.forEachIndexed { index, (title, _) ->
                 Tab(
@@ -53,7 +61,7 @@ fun TargetedDevicesScreen() {
                 ) {
                     Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                         Row {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE040FB))
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF5252))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(device.deviceName, color = Color.White, style = MaterialTheme.typography.titleMedium)
                         }

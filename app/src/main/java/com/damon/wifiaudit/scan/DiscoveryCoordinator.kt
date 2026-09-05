@@ -164,12 +164,11 @@ class DiscoveryCoordinator(private val context: Context) {
                             try {
                                 val db = AppDatabase.getInstance(context)
                                 val repository = WardrivingRepository(db)
-                                repository.processAndSaveRingCamera(
+                                repository.processAndSaveTargetDevice(
                                     macAddress = mac.uppercase(),
                                     deviceName = hostname.takeIf { it != ip } ?: vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
-                                    ssid = "LAN ($ip)",
+                                    category = "CAMERA",
                                     rssi = -50,
-                                    frequency = 2400,
                                     latitude = null,
                                     longitude = null
                                 )
@@ -222,12 +221,11 @@ class DiscoveryCoordinator(private val context: Context) {
                 try {
                     val db = AppDatabase.getInstance(context)
                     val repository = WardrivingRepository(db)
-                    repository.processAndSaveRingCamera(
+                    repository.processAndSaveTargetDevice(
                         macAddress = mac.uppercase(),
                         deviceName = hostname.takeIf { it != merged.ip } ?: vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
-                        ssid = "LAN (${merged.ip})",
+                        category = "CAMERA",
                         rssi = -50,
-                        frequency = 2400,
                         latitude = null,
                         longitude = null
                     )

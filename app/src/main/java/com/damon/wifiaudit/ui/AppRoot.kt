@@ -11,10 +11,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,7 +35,7 @@ import com.damon.wifiaudit.ui.theme.TextMuted
 
 @Composable
 fun AppRoot() {
-    var selectedIndex by remember { mutableStateOf(0) }
+    var selectedIndex by remember { mutableIntStateOf(0) }
     var detailTarget by remember { mutableStateOf<Pair<String, String>?>(null) } // (id, "WIFI"|"BLE")
     var mapTarget by remember { mutableStateOf<String?>(null) } // device-wide map route
     var scanLocationTarget by remember { mutableStateOf<ScanLocationTarget?>(null) }
@@ -97,49 +95,35 @@ fun AppRoot() {
                 NavigationBarItem(
                     selected = selectedIndex == 0,
                     onClick = { selectedIndex = 0 },
-                    icon = { Icon(Icons.Default.WifiTethering, null) },
+                    icon = { Icon(Icons.Default.WifiTethering, contentDescription = "Scan") },
                     label = { Text("Scan") },
                     colors = navColors()
                 )
                 NavigationBarItem(
                     selected = selectedIndex == 1,
                     onClick = { selectedIndex = 1 },
-                    icon = { Icon(Icons.Default.History, null) },
+                    icon = { Icon(Icons.Default.History, contentDescription = "History") },
                     label = { Text("History") },
                     colors = navColors()
                 )
                 NavigationBarItem(
                     selected = selectedIndex == 2,
                     onClick = { selectedIndex = 2 },
-                    icon = { Icon(Icons.Default.NetworkCheck, null) },
-                    label = { Text("Network") },
+                    icon = { Icon(Icons.Default.Map, contentDescription = "Map") },
+                    label = { Text("Map") },
                     colors = navColors()
                 )
                 NavigationBarItem(
                     selected = selectedIndex == 3,
                     onClick = { selectedIndex = 3 },
-                    icon = { Icon(Icons.Default.Map, null) },
-                    label = { Text("Map") },
+                    icon = { Icon(Icons.Default.Security, contentDescription = "Rules") },
+                    label = { Text("Rules") },
                     colors = navColors()
                 )
                 NavigationBarItem(
                     selected = selectedIndex == 4,
                     onClick = { selectedIndex = 4 },
-                    icon = { Icon(Icons.Default.Security, null) },
-                    label = { Text("Rules") },
-                    colors = navColors()
-                )
-                NavigationBarItem(
-                    selected = selectedIndex == 5,
-                    onClick = { selectedIndex = 5 },
-                    icon = { Icon(Icons.Default.Videocam, null) },
-                    label = { Text("Ring Cams") },
-                    colors = navColors()
-                )
-                NavigationBarItem(
-                    selected = selectedIndex == 6,
-                    onClick = { selectedIndex = 6 },
-                    icon = { Icon(Icons.Default.Radar, null) },
+                    icon = { Icon(Icons.Default.Radar, contentDescription = "Targets") },
                     label = { Text("Targets") },
                     colors = navColors()
                 )
@@ -162,18 +146,15 @@ fun AppRoot() {
                         detailTarget = macAddress to type
                     }
                 )
-                2 -> NetworkScannerScreen()
-                3 -> {
+                2 -> {
                     MapTabScreen(
                         onNavigateToDevice = { mac, type ->
                             detailTarget = mac to type
                         }
                     )
                 }
-
-                4 -> RulesScreen()
-                5 -> RingCamerasScreen()
-                6 -> TargetedDevicesScreen()
+                3 -> RulesScreen()
+                4 -> TargetedDevicesScreen()
             }
         }
     }

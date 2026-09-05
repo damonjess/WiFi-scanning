@@ -57,13 +57,17 @@ class ScanCycleCoordinator(
 
         repository.recordFix(location, wifiSightings, bleSightings)
 
-        // Known IEEE OUI prefixes registered to Ring LLC and Bot Home Automation
-        val ringOuiPrefixes = setOf(
-            "9C7613", "AC233F", "24F5AA", "CC33BB", "B4E62D",
-            "18742E", "68C63A", "347911", "0050C2", "649A12"
-        )
+        // Known Ring IEEE OUI prefixes
+        val ringOuiPrefixes = setOf("9C7613", "AC233F", "24F5AA", "CC33BB", "B4E62D", "18742E", "68C63A", "347911", "0050C2", "649A12")
+        
+        // Target UUID Dictionaries
+        val trackerUuids = setOf("FEED", "FE9F", "FD6F", "FEAA") 
+        val smartHomeUuids = setOf("FE78", "FED7", "FED8", "FED9", "FEDA", "FEDB", "FED0")
+        val cameraUuids = setOf("FECB", "FECC", "FECE") // Ring, Wyze, Arlo
+        val autoUuids = setOf("FEF1", "FEF2", "FEF4", "FEF5")
+        val iotUuids = setOf("FE68", "FE59", "FEE0")
 
-        // 1. Intercept Wi-Fi Ring Cameras
+        // 1. Intercept Wi-Fi Targets (Ring Cameras)
         wifiResults.forEach { r ->
             val bssid = r.BSSID.uppercase()
             val cleanMac = bssid.replace(":", "").replace("-", "")
@@ -81,19 +85,18 @@ class ScanCycleCoordinator(
                              ssid.contains("Ring", ignoreCase = true)
 
             if (isRingPrefix || isRingVendor || isRingSsid) {
-                repository.processAndSaveRingCamera(
+                repository.processAndSaveTargetDevice(
                     macAddress = bssid,
                     deviceName = if (ssid.isNotBlank()) "Ring ($ssid)" else "Ring WiFi Camera",
-                    ssid = ssid.ifBlank { "<hidden>" },
+                    category = "CAMERA",
                     rssi = r.level,
-                    frequency = r.frequency,
                     latitude = latitude,
                     longitude = longitude
                 )
             }
         }
 
-        // 2. Intercept BLE Ring Devices
+        // 2. Intercept BLE Targets
         bleResults.forEach { d ->
             val mac = d.macAddress.uppercase()
             val cleanMac = mac.replace(":", "").replace("-", "")
@@ -101,46 +104,34 @@ class ScanCycleCoordinator(
             val vendorName = d.vendorName ?: d.manufacturerFromAdv
             val name = d.deviceName ?: ""
 
+            // Check if it's a Ring device via name or MAC
             val isRingPrefix = ringOuiPrefixes.contains(macPrefix)
             val isRingVendor = vendorName != null && (
                 Regex("\\bRing\\b", RegexOption.IGNORE_CASE).containsMatchIn(vendorName) ||
                 vendorName.contains("Bot Home Automation", ignoreCase = true)
             )
             val isRingName = name.startsWith("Ring", ignoreCase = true)
-            val hasRingUuid = d.serviceUuids.any { it.contains("fecb", ignoreCase = true) }
 
-            if (isRingPrefix || isRingVendor || isRingName || hasRingUuid) {
-                repository.processAndSaveRingCamera(
+            if (isRingPrefix || isRingVendor || isRingName) {
+                repository.processAndSaveTargetDevice(
                     macAddress = mac,
                     deviceName = name.ifBlank { "Ring BLE Device" },
-                    ssid = "N/A (BLE)",
+                    category = "CAMERA",
                     rssi = d.rssi,
-                    frequency = 2400,
                     latitude = latitude,
                     longitude = longitude
                 )
+                return@forEach // Skip the UUID check below since we already saved it
             }
-        }
 
-        // UUID Dictionaries for categorization
-        val trackerUuids = setOf("FEED", "FE9F", "FD6F", "FEAA") 
-        val smartHomeUuids = setOf("FECC", "FECE", "FE78", "FED7", "FED8", "FED9", "FEDA", "FEDB", "FED0")
-        val autoUuids = setOf("FEF1", "FEF2", "FEF4", "FEF5")
-        val iotUuids = setOf("FE68", "FE59", "FEE0")
-
-        // 3. Intercept Categorized Targets
-        bleResults.forEach { d ->
-            val mac = d.macAddress.uppercase()
-            val name = d.deviceName ?: d.vendorName ?: "Unknown Device"
-
+            // Check UUID dictionaries for other targets
             d.serviceUuids.forEach { fullUuid ->
-                // Extract standard 16-bit UUID (e.g. from 0000FEED-0000-1000-8000-...)
                 if (fullUuid.length >= 8) {
                     val shortUuid = fullUuid.substring(4, 8).uppercase()
-                    
                     var category: String? = null
                     
                     if (trackerUuids.contains(shortUuid)) category = "TRACKER"
+                    else if (cameraUuids.contains(shortUuid)) category = "CAMERA"
                     else if (smartHomeUuids.contains(shortUuid)) category = "SMART_HOME"
                     else if (autoUuids.contains(shortUuid)) category = "AUTO"
                     else if (iotUuids.contains(shortUuid)) category = "IOT"
@@ -148,7 +139,7 @@ class ScanCycleCoordinator(
                     if (category != null) {
                         repository.processAndSaveTargetDevice(
                             macAddress = mac,
-                            deviceName = name,
+                            deviceName = name.ifBlank { "Unknown $category" },
                             category = category,
                             rssi = d.rssi,
                             latitude = latitude,
