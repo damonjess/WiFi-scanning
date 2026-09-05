@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WifiSightingRecord
 import com.damon.wifiaudit.data.BleSightingRecord
-import com.damon.wifiaudit.data.RingCamera
+import com.damon.wifiaudit.data.TargetDevice
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -63,8 +63,8 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         viewModelScope.launch {
-            // Ring cameras with GPS
-            db.ringCameraDao().getAllRingCameras().collect { cameras ->
+            // Camera/Ring targets with GPS
+            db.targetDeviceDao().getByCategory("CAMERA").collect { cameras ->
                 _ringPoints.value = cameras
                     .filter { it.latitude != null && it.longitude != null }
                     .map { it.toMapPoint() }
@@ -72,10 +72,10 @@ class MapViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun RingCamera.toMapPoint(): MapPoint {
+    private fun TargetDevice.toMapPoint(): MapPoint {
         return MapPoint(
             id = macAddress.hashCode().toLong(),
-            locationId = -1L, // Ring cameras aren't tied to a specific scan location ID in the same way
+            locationId = -1L,
             macAddress = macAddress,
             name = deviceName,
             rssi = signalStrength,
