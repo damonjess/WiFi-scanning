@@ -33,8 +33,8 @@ object SurveillanceDeviceWatchdog {
         "TP-Link", "Netgear", "D-Link", "Linksys", "ASUS", "Huawei", "ZTE", "MikroTik", "Ubiquiti", "Cisco"
     )
 
-    private val doorbellVendorKeywords = listOf("Ring LLC", "Amazon Technologies", "Ring.com", "Ring", "Amazon")
-    private val doorbellSsidKeywords = listOf("ring_doorbell", "doorbell")
+    private val doorbellVendorKeywords = listOf("Ring LLC", "Ring Inc", "Ring Solutions", "Ring.com", "Amazon Technologies")
+    private val doorbellSsidKeywords = listOf("ring_doorbell", "ring-", "ringsetup")
 
     // Generic-chipset cameras rarely show a helpful OUI vendor, so default
     // SSIDs (set at first boot, often left unchanged) are the more reliable
@@ -93,6 +93,19 @@ object SurveillanceDeviceWatchdog {
             return Match(DeviceCategory.HIDDEN_CAMERA, "vendor/name", Severity.HIGH)
         }
         return null
+    }
+
+    fun isRingDevice(ssid: String?, vendor: String?, deviceName: String? = null, serviceUuids: List<String> = emptyList()): Boolean {
+        val s = ssid?.lowercase().orEmpty()
+        val v = vendor?.lowercase().orEmpty()
+        val n = deviceName?.lowercase().orEmpty()
+
+        val isRingVendor = v.contains("ring inc") || v.contains("ring llc") || v.contains("ring solutions")
+        val isRingSsid = s.startsWith("ring-") || s.startsWith("ringsetup") || s.startsWith("ring_")
+        val isRingName = n.startsWith("ring")
+        val hasRingUuid = serviceUuids.any { it.contains("fecb", ignoreCase = true) }
+
+        return isRingVendor || isRingSsid || isRingName || hasRingUuid
     }
 
     fun analyzeVulnerabilities(vendor: String?, openPorts: List<Int>): List<Match> {

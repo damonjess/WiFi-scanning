@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.WifiTethering
@@ -135,6 +136,13 @@ fun AppRoot() {
                     label = { Text("Ring Cams") },
                     colors = navColors()
                 )
+                NavigationBarItem(
+                    selected = selectedIndex == 6,
+                    onClick = { selectedIndex = 6 },
+                    icon = { Icon(Icons.Default.Radar, null) },
+                    label = { Text("Targets") },
+                    colors = navColors()
+                )
             }
         },
         containerColor = DarkBackground
@@ -165,6 +173,7 @@ fun AppRoot() {
 
                 4 -> RulesScreen()
                 5 -> RingCamerasScreen()
+                6 -> TargetedDevicesScreen()
             }
         }
     }

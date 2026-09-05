@@ -48,9 +48,11 @@ fun MapTabScreen(
 
     val wifiPoints by viewModel.wifiPoints.collectAsState()
     val blePoints by viewModel.blePoints.collectAsState()
+    val ringPoints by viewModel.ringPoints.collectAsState()
     val total by viewModel.totalPoints.collectAsState()
     val showWifi by viewModel.showWifi.collectAsState()
     val showBle by viewModel.showBle.collectAsState()
+    val showRing by viewModel.showRing.collectAsState()
     val selected by viewModel.selectedPoint.collectAsState()
     val liveSnapshot by ScanStatusRepository.snapshot.collectAsState()
 
@@ -59,10 +61,11 @@ fun MapTabScreen(
     var followLiveLocation by remember { mutableStateOf(true) }
     var initialHistoricViewportApplied by remember { mutableStateOf(false) }
     var expandedClusterId by remember { mutableStateOf<Long?>(null) }
-    val clusters = remember(wifiPoints, blePoints, showWifi, showBle) {
+    val clusters = remember(wifiPoints, blePoints, ringPoints, showWifi, showBle, showRing) {
         val visibleWifi = (if (showWifi) wifiPoints else emptyList()).filter(::hasValidMapCoordinate)
         val visibleBle = (if (showBle) blePoints else emptyList()).filter(::hasValidMapCoordinate)
-        buildLocationClusters(visibleWifi + visibleBle)
+        val visibleRing = (if (showRing) ringPoints else emptyList()).filter(::hasValidMapCoordinate)
+        buildLocationClusters(visibleWifi + visibleBle + visibleRing)
     }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showSheet by remember { mutableStateOf(false) }
@@ -115,12 +118,12 @@ fun MapTabScreen(
                 .sortedByDescending { it.rssi }
                 .take(MAX_EXPANDED_MARKERS)
                 .toList()
-            expandedPoints.forEachIndexed { index, point ->
+                    expandedPoints.forEachIndexed { index, point ->
                 map.overlays.add(
                     createMarker(
                         map = map,
                         pt = point,
-                        isWifi = point.type == MapViewModel.PointType.WIFI,
+                        pointType = point.type,
                         displayPosition = spiderfyPosition(expandedCluster, index, expandedPoints.size),
                     )
                 )
@@ -234,6 +237,20 @@ fun MapTabScreen(
                     modifier = Modifier.height(32.dp)
                 )
 
+                FilterChip(
+                    selected = showRing,
+                    onClick = { viewModel.toggleRing() },
+                    label = { Text("Ring ${ringPoints.size}", fontSize = 12.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Videocam, null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(16.dp))
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFFFF6B6B).copy(alpha = 0.15f),
+                        selectedLabelColor = Color(0xFFFF6B6B)
+                    ),
+                    modifier = Modifier.height(32.dp)
+                )
+
                 Spacer(modifier = Modifier.weight(1f))
 
                 Text(
@@ -341,7 +358,8 @@ private data class LocationCluster(
     val points: List<MapViewModel.MapPoint>,
 ) {
     val wifiCount: Int get() = points.count { it.type == MapViewModel.PointType.WIFI }
-    val bleCount: Int get() = points.size - wifiCount
+    val bleCount: Int get() = points.count { it.type == MapViewModel.PointType.BLE }
+    val ringCount: Int get() = points.count { it.type == MapViewModel.PointType.RING }
     val strongestPoint: MapViewModel.MapPoint get() = points.maxBy { it.rssi }
 }
 
@@ -378,6 +396,7 @@ private fun createClusterMarker(
         append("${cluster.points.size} readings")
         append(" • ${cluster.wifiCount} WiFi")
         append(" • ${cluster.bleCount} BLE")
+        if (cluster.ringCount > 0) append(" • ${cluster.ringCount} Ring")
         append("\\nTap to expand this location")
     }
     setOnMarkerClickListener { _, _ ->
@@ -418,21 +437,31 @@ private fun clusterColor(cluster: LocationCluster): Int {
     val strongest = cluster.strongestPoint
     return markerColor(
         rssi = strongest.rssi,
-        isWifi = strongest.type == MapViewModel.PointType.WIFI,
+        pointType = strongest.type
     ).toArgb()
 }
 
-private fun markerColor(rssi: Int, isWifi: Boolean): Color = if (isWifi) {
-    when {
-        rssi >= -50 -> Color(0xFF00E676)
-        rssi >= -70 -> Color(0xFF00BCD4)
-        else -> Color(0xFF01579B)
+private fun markerColor(rssi: Int, pointType: MapViewModel.PointType): Color = when (pointType) {
+    MapViewModel.PointType.WIFI -> {
+        when {
+            rssi >= -50 -> Color(0xFF00E676)
+            rssi >= -70 -> Color(0xFF00BCD4)
+            else -> Color(0xFF01579B)
+        }
     }
-} else {
-    when {
-        rssi >= -50 -> Color(0xFFEA80FC)
-        rssi >= -70 -> Color(0xFFE040FB)
-        else -> Color(0xFFAA00FF)
+    MapViewModel.PointType.BLE -> {
+        when {
+            rssi >= -50 -> Color(0xFFEA80FC)
+            rssi >= -70 -> Color(0xFFE040FB)
+            else -> Color(0xFFAA00FF)
+        }
+    }
+    MapViewModel.PointType.RING -> {
+        when {
+            rssi >= -50 -> Color(0xFFFF5252)
+            rssi >= -70 -> Color(0xFFFF6B6B)
+            else -> Color(0xFFC62828)
+        }
     }
 }
 
@@ -486,12 +515,12 @@ private fun spiderfyPosition(cluster: LocationCluster, index: Int, total: Int): 
 private fun createMarker(
     map: MapView,
     pt: MapViewModel.MapPoint,
-    isWifi: Boolean,
+    pointType: MapViewModel.PointType,
     displayPosition: GeoPoint = GeoPoint(pt.latitude, pt.longitude),
 ): Marker {
     return Marker(map).apply {
         position = displayPosition
-        icon = createRssiDot(map.context, pt.rssi, isWifi)
+        icon = createRssiDot(map.context, pt.rssi, pointType)
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         title = "${pt.name}\n${pt.macAddress}\n${pt.rssi} dBm"
         setOnMarkerClickListener { _, _ ->
@@ -517,13 +546,13 @@ object MapMarkerBridge {
 // MapMarkerBridge.onSelect = { pt -> viewModel.selectPoint(pt) }
 
 // --- Dot drawable ---
-private fun createRssiDot(context: Context, rssi: Int, isWifi: Boolean): BitmapDrawable {
+private fun createRssiDot(context: Context, rssi: Int, pointType: MapViewModel.PointType): BitmapDrawable {
     val size = 56
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    val color = markerColor(rssi, isWifi)
+    val color = markerColor(rssi, pointType)
 
     paint.color = color.copy(alpha = 0.3f).toArgb()
     canvas.drawCircle(size / 2f, size / 2f, size / 2f - 2f, paint)
@@ -587,6 +616,10 @@ private fun CompactLegend(modifier: Modifier = Modifier) {
                         Box(modifier = Modifier.size(8.dp).background(Color(0xFFE040FB), CircleShape))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("BLE", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Box(modifier = Modifier.size(8.dp).background(Color(0xFFFF6B6B), CircleShape))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Ring", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
                     }
                     Text(
                         "Numbered dots group readings. Tap one to expand.",
@@ -631,9 +664,18 @@ private fun PointDetailContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val iconColor = if (point.type == MapViewModel.PointType.WIFI) Color(0xFF00BCD4) else Color(0xFFE040FB)
+                val iconColor = when (point.type) {
+                    MapViewModel.PointType.WIFI -> Color(0xFF00BCD4)
+                    MapViewModel.PointType.BLE -> Color(0xFFE040FB)
+                    MapViewModel.PointType.RING -> Color(0xFFFF6B6B)
+                }
+                val icon = when (point.type) {
+                    MapViewModel.PointType.WIFI -> Icons.Default.Wifi
+                    MapViewModel.PointType.BLE -> Icons.Default.Bluetooth
+                    MapViewModel.PointType.RING -> Icons.Default.Videocam
+                }
                 Icon(
-                    if (point.type == MapViewModel.PointType.WIFI) Icons.Default.Wifi else Icons.Default.Bluetooth,
+                    icon,
                     null,
                     tint = iconColor,
                     modifier = Modifier.size(28.dp)
@@ -661,7 +703,11 @@ private fun PointDetailContent(
 
         Button(
             onClick = {
-                val type = if (point.type == MapViewModel.PointType.WIFI) "WIFI" else "BLE"
+                val type = when (point.type) {
+                    MapViewModel.PointType.WIFI -> "WIFI"
+                    MapViewModel.PointType.BLE -> "BLE"
+                    MapViewModel.PointType.RING -> "RING"
+                }
                 onOpenDevice(point.macAddress, type)
             },
             shape = RoundedCornerShape(12.dp),

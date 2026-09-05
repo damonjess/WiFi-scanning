@@ -164,4 +164,22 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
     }
 }
 
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS targeted_devices (
+                macAddress TEXT NOT NULL PRIMARY KEY,
+                deviceName TEXT NOT NULL,
+                category TEXT NOT NULL,
+                signalStrength INTEGER NOT NULL,
+                firstSeen INTEGER NOT NULL,
+                lastSeen INTEGER NOT NULL,
+                latitude REAL,
+                longitude REAL
+            )
+        """)
+    }
+}
+
+
 

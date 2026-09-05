@@ -11,6 +11,7 @@ class WardrivingRepository(
     private val wifiDao = db.wifiSightingDao()
     private val bleDao = db.bleSightingDao()
     private val ringDao = db.ringCameraDao()
+    private val targetDao = db.targetDeviceDao()
 
     /**
      * Atomically writes one location fix plus all Wi-Fi/BLE sightings captured
@@ -119,6 +120,31 @@ class WardrivingRepository(
                     latitude = latitude,
                     longitude = longitude
                 )
+            )
+        }
+    }
+
+    suspend fun processAndSaveTargetDevice(
+        macAddress: String,
+        deviceName: String,
+        category: String,
+        rssi: Int,
+        latitude: Double?,
+        longitude: Double?
+    ) {
+        val existing = targetDao.getDevice(macAddress)
+        if (existing != null) {
+            targetDao.upsert(
+                existing.copy(
+                    lastSeen = System.currentTimeMillis(),
+                    signalStrength = rssi,
+                    latitude = latitude ?: existing.latitude,
+                    longitude = longitude ?: existing.longitude
+                )
+            )
+        } else {
+            targetDao.upsert(
+                TargetDevice(macAddress, deviceName, category, rssi, System.currentTimeMillis(), System.currentTimeMillis(), latitude, longitude)
             )
         }
     }

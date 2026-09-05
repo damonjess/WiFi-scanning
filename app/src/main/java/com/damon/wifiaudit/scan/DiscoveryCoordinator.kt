@@ -2,6 +2,8 @@ package com.damon.wifiaudit.scan
 
 import android.content.Context
 import android.util.Log
+import com.damon.wifiaudit.data.AppDatabase
+import com.damon.wifiaudit.data.WardrivingRepository
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import kotlinx.coroutines.*
@@ -155,6 +157,27 @@ class DiscoveryCoordinator(private val context: Context) {
                     
                     deviceMap[ip] = dev.copy(mac = mac, vendor = vendor, securityMatches = allMatches)
                     changed = true
+
+                    val hostname = dev.hostname ?: ip
+                    if (SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
+                        scope.launch {
+                            try {
+                                val db = AppDatabase.getInstance(context)
+                                val repository = WardrivingRepository(db)
+                                repository.processAndSaveRingCamera(
+                                    macAddress = mac.uppercase(),
+                                    deviceName = hostname.takeIf { it != ip } ?: vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
+                                    ssid = "LAN ($ip)",
+                                    rssi = -50,
+                                    frequency = 2400,
+                                    latitude = null,
+                                    longitude = null
+                                )
+                            } catch (e: Exception) {
+                                Log.e(tag, "Failed to save Ring camera from ARP enrichment", e)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -193,6 +216,25 @@ class DiscoveryCoordinator(private val context: Context) {
         scope.launch {
             val mac = merged.mac ?: "Unknown"
             val vendor = merged.vendor ?: OuiVendorLookup.lookup(mac)
+            val hostname = merged.hostname ?: merged.ip
+
+            if (mac != "Unknown" && SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
+                try {
+                    val db = AppDatabase.getInstance(context)
+                    val repository = WardrivingRepository(db)
+                    repository.processAndSaveRingCamera(
+                        macAddress = mac.uppercase(),
+                        deviceName = hostname.takeIf { it != merged.ip } ?: vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
+                        ssid = "LAN (${merged.ip})",
+                        rssi = -50,
+                        frequency = 2400,
+                        latitude = null,
+                        longitude = null
+                    )
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to save Ring camera from LAN scan", e)
+                }
+            }
             
             // Re-classify security matches with full context
             val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi(merged.hostname ?: "", vendor)
