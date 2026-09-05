@@ -6,6 +6,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -39,18 +44,30 @@ internal fun PointDetailBottomSheet(
         ) {
             // Header
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val isTarget = point.type !in listOf("WIFI", "BLE")
+                val (iconBg, iconTint) = when {
+                    isTarget -> Color(0xFFFF5252).copy(alpha = 0.2f) to Color(0xFFFF5252)
+                    point.type == "BLE" -> Color(0xFFE040FB).copy(alpha = 0.2f) to Color(0xFFE040FB)
+                    else -> Color(0xFF00BCD4).copy(alpha = 0.2f) to Color(0xFF00BCD4)
+                }
+
+                val vectorIcon = when(point.type) {
+                    "RING" -> Icons.Default.Videocam
+                    "TRACKER" -> Icons.Default.LocationOn
+                    "SMART_HOME" -> Icons.Default.Home
+                    "AUTO" -> Icons.Default.DirectionsCar
+                    "IOT" -> Icons.Default.Memory
+                    "BLE" -> Icons.Default.Bluetooth
+                    else -> Icons.Default.Wifi
+                }
+
                 Surface(
                     shape = CircleShape,
-                    color = if (point.type == "BLE") Color(0xFFE040FB).copy(alpha = 0.2f)
-                    else Color(0xFF00BCD4).copy(alpha = 0.2f),
+                    color = iconBg,
                     modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (point.type == "BLE") Icons.Default.Bluetooth else Icons.Default.Wifi,
-                            contentDescription = null,
-                            tint = if (point.type == "BLE") Color(0xFFE040FB) else Color(0xFF00BCD4)
-                        )
+                        Icon(imageVector = vectorIcon, contentDescription = null, tint = iconTint)
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))

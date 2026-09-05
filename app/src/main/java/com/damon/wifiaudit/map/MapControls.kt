@@ -13,24 +13,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.material.icons.filled.Warning
+
 @Composable
 fun MapControls(
     modifier: Modifier = Modifier,
     onRecenter: () -> Unit,
     showWifi: Boolean,
     showBle: Boolean,
+    showTargets: Boolean,
     showGrid: Boolean,
     onToggleWifi: () -> Unit,
     onToggleBle: () -> Unit,
+    onToggleTargets: () -> Unit,
     onToggleGrid: () -> Unit
 ) {
     Column(
         modifier = modifier.padding(end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        MapControlButton(icon = Icons.Default.MyLocation, onClick = onRecenter)
         MapControlButton(
-            icon = Icons.Default.MyLocation,
-            onClick = onRecenter
+            icon = Icons.Default.Warning,
+            tint = if (showTargets) Color(0xFFFF5252) else Color.Gray,
+            onClick = onToggleTargets
         )
         MapControlButton(
             icon = Icons.Default.Wifi,

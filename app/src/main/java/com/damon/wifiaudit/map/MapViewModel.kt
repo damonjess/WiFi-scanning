@@ -8,6 +8,8 @@ import com.damon.wifiaudit.scan.ScanStatusRepository
 import com.damon.wifiaudit.data.entity.RssiHeatmapPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MapViewModel(application: Application) : AndroidViewModel(application) {
@@ -15,6 +17,8 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val historyDao = db.sightingHistoryDao()
     private val locationDao = db.locationFixDao()
     private val sessionDao = db.scanSessionDao()
+    private val ringDao = db.ringCameraDao()
+    private val targetDao = db.targetDeviceDao()
 
     val currentSnapshot = ScanStatusRepository.snapshot
 
@@ -43,11 +47,31 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _showHeatmap = MutableStateFlow(false)
     val showHeatmap: StateFlow<Boolean> = _showHeatmap.asStateFlow()
 
-    // --- NEW IMPROVEMENTS ---
+    // Layer toggles
+    private val _showWifi = MutableStateFlow(true)
+    val showWifi: StateFlow<Boolean> = _showWifi.asStateFlow()
+    private val _showBle = MutableStateFlow(true)
+    val showBle: StateFlow<Boolean> = _showBle.asStateFlow()
+    private val _showGrid = MutableStateFlow(false)
+    val showGrid: StateFlow<Boolean> = _showGrid.asStateFlow()
 
-    // All points for this session
-    private val _allPoints = MutableStateFlow<List<HeatmapPoint>>(emptyList())
-    val allPoints: StateFlow<List<HeatmapPoint>> = _allPoints.asStateFlow()
+    private val _showTargets = MutableStateFlow(true)
+    val showTargets: StateFlow<Boolean> = _showTargets.asStateFlow()
+    fun toggleTargets() { _showTargets.value = !_showTargets.value }
+
+    // Replaces the old _allPoints to automatically filter based on toggles
+    private val _rawPoints = MutableStateFlow<List<HeatmapPoint>>(emptyList())
+    val allPoints: StateFlow<List<HeatmapPoint>> = combine(
+        _rawPoints, _showWifi, _showBle, _showTargets
+    ) { points, wifi, ble, targets ->
+        points.filter { pt ->
+            when (pt.type) {
+                "WIFI" -> wifi
+                "BLE" -> ble
+                else -> targets // Applies to RING, TRACKER, SMART_HOME, AUTO, IOT
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- OSM Integration ---
     private val _osmPoints = MutableStateFlow<List<RssiHeatmapPoint>>(emptyList())
@@ -101,14 +125,6 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     // Selected point for bottom sheet
     private val _selectedPoint = MutableStateFlow<HeatmapPoint?>(null)
     val selectedPoint: StateFlow<HeatmapPoint?> = _selectedPoint.asStateFlow()
-
-    // Layer toggles
-    private val _showWifi = MutableStateFlow(true)
-    val showWifi: StateFlow<Boolean> = _showWifi.asStateFlow()
-    private val _showBle = MutableStateFlow(true)
-    val showBle: StateFlow<Boolean> = _showBle.asStateFlow()
-    private val _showGrid = MutableStateFlow(false)
-    val showGrid: StateFlow<Boolean> = _showGrid.asStateFlow()
 
     fun setPlaybackIndex(index: Int?) { _playbackIndex.value = index }
     fun selectPoint(point: HeatmapPoint?) { _selectedPoint.value = point }
@@ -167,11 +183,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                 _trackPoints.value = sessionFixes
                 val sessionFixIds = sessionFixes.map { it.id }.toSet()
 
-                // Load all history and filter for this session
                 val allWifi = historyDao.getWifiHistory()
                 val allBle = historyDao.getBleHistory()
 
-                // De-duplicate: Keep only the strongest sighting for each unique BSSID/MAC in this session
                 _wifiLocations.value = allWifi
                     .filter { it.locationId in sessionFixIds }
                     .groupBy { it.bssid }
@@ -182,7 +196,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     .groupBy { it.macAddress }
                     .map { (_, sightings) -> sightings.maxBy { it.rssi } }
 
-                updateHeatmapPoints(_wifiLocations.value, _bleLocations.value, sessionFixes)
+                val rings = ringDao.getAllRingCameras().first()
+                val targets = listOf("TRACKER", "SMART_HOME", "AUTO", "IOT").flatMap {
+                    targetDao.getByCategory(it).first()
+                }
+
+                updateHeatmapPoints(_wifiLocations.value, _bleLocations.value, rings, targets, sessionFixes)
 
             } catch (e: Exception) {
                 android.util.Log.e("MapVM", "Failed to load session data", e)
@@ -193,10 +212,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private fun updateHeatmapPoints(
         wifi: List<WifiSightingRecord>,
         ble: List<BleSightingRecord>,
+        rings: List<RingCamera>,
+        targets: List<TargetDevice>,
         fixes: List<LocationFix>
     ) {
         if (fixes.isEmpty()) {
-            _allPoints.value = emptyList()
+            _rawPoints.value = emptyList()
             return
         }
 
@@ -211,15 +232,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         val wifiPts = wifi.map {
             HeatmapPoint(
                 x = ((it.longitude - minLon) / lonRange).toFloat(),
-                y = (1.0 - (it.latitude - minLat) / latRange).toFloat(), // Flip Y for screen coords
-                rssi = it.rssi,
-                type = "WIFI",
-                mac = it.bssid,
-                deviceName = it.ssid,
-                timestamp = it.timestamp,
-                ssid = it.ssid,
-                latitude = it.latitude,
-                longitude = it.longitude
+                y = (1.0 - (it.latitude - minLat) / latRange).toFloat(),
+                rssi = it.rssi, type = "WIFI", mac = it.bssid, deviceName = it.ssid,
+                timestamp = it.timestamp, ssid = it.ssid, latitude = it.latitude, longitude = it.longitude
             )
         }
 
@@ -227,16 +242,29 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             HeatmapPoint(
                 x = ((it.longitude - minLon) / lonRange).toFloat(),
                 y = (1.0 - (it.latitude - minLat) / latRange).toFloat(),
-                rssi = it.rssi,
-                type = "BLE",
-                mac = it.macAddress,
-                deviceName = it.deviceName,
-                timestamp = it.timestamp,
-                latitude = it.latitude,
-                longitude = it.longitude
+                rssi = it.rssi, type = "BLE", mac = it.macAddress, deviceName = it.deviceName,
+                timestamp = it.timestamp, latitude = it.latitude, longitude = it.longitude
             )
         }
 
-        _allPoints.value = (wifiPts + blePts).sortedBy { it.timestamp }
+        val ringPts = rings.filter { it.latitude != null && it.longitude != null }.map {
+            HeatmapPoint(
+                x = ((it.longitude!! - minLon) / lonRange).toFloat(),
+                y = (1.0 - (it.latitude!! - minLat) / latRange).toFloat(),
+                rssi = it.signalStrength, type = "RING", mac = it.macAddress, deviceName = it.deviceName,
+                timestamp = it.lastSeen, ssid = it.ssid, latitude = it.latitude, longitude = it.longitude
+            )
+        }
+
+        val targetPts = targets.filter { it.latitude != null && it.longitude != null }.map {
+            HeatmapPoint(
+                x = ((it.longitude!! - minLon) / lonRange).toFloat(),
+                y = (1.0 - (it.latitude!! - minLat) / latRange).toFloat(),
+                rssi = it.signalStrength, type = it.category, mac = it.macAddress, deviceName = it.deviceName,
+                timestamp = it.lastSeen, latitude = it.latitude, longitude = it.longitude
+            )
+        }
+
+        _rawPoints.value = (wifiPts + blePts + ringPts + targetPts).sortedBy { it.timestamp }
     }
 }

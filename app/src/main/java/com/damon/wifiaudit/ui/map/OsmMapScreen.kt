@@ -145,9 +145,11 @@ fun OsmMapScreen(
             },
             showWifi = wifiVisible,
             showBle = bleVisible,
+            showTargets = viewModel.showTargets.collectAsState().value,
             showGrid = false,
             onToggleWifi = { viewModel.toggleWifi() },
             onToggleBle = { viewModel.toggleBle() },
+            onToggleTargets = { viewModel.toggleTargets() },
             onToggleGrid = { },
             modifier = Modifier
                 .align(Alignment.TopEnd)

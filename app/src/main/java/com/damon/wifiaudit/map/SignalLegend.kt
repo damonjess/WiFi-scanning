@@ -32,6 +32,7 @@ fun SignalLegend(modifier: Modifier = Modifier) {
             Spacer(modifier = Modifier.height(12.dp))
             Text("Type", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
             Spacer(modifier = Modifier.height(6.dp))
+            LegendItem(color = Color(0xFFFF5252), label = "High-Value Target")
             LegendItem(color = Color(0xFF00BCD4), label = "WiFi Network")
             LegendItem(color = Color(0xFFE040FB), label = "Bluetooth Device")
         }
