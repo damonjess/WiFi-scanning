@@ -181,5 +181,14 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
     }
 }
 
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ble_sightings ADD COLUMN iBeaconMajor INTEGER")
+        db.execSQL("ALTER TABLE ble_sightings ADD COLUMN iBeaconMinor INTEGER")
+        db.execSQL("DROP TABLE IF EXISTS ring_cameras")
+    }
+}
+
+
 
 

@@ -9,7 +9,6 @@ import com.damon.wifiaudit.data.dao.OuiVendorDao
 import com.damon.wifiaudit.data.dao.RssiHeatmapDao
 import com.damon.wifiaudit.data.dao.StandardGattUuidDao
 import com.damon.wifiaudit.data.dao.ProximityRuleDao
-import com.damon.wifiaudit.data.dao.RingCameraDao
 import com.damon.wifiaudit.data.dao.TargetDeviceDao
 import com.damon.wifiaudit.data.entity.BleGattSnapshot
 import com.damon.wifiaudit.data.entity.OuiVendor
@@ -23,10 +22,10 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         ApScanEntity::class, LocationFix::class, WifiSighting::class,
         BleSighting::class, ScanSession::class, ApiQueueItem::class,
         BleGattSnapshot::class, OuiVendor::class, StandardGattUuid::class,
-        RssiHeatmapPoint::class, ProximityRule::class, RingCamera::class,
+        RssiHeatmapPoint::class, ProximityRule::class,
         TargetDevice::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,7 +41,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun standardGattUuidDao(): StandardGattUuidDao
     abstract fun rssiHeatmapDao(): RssiHeatmapDao
     abstract fun proximityRuleDao(): ProximityRuleDao
-    abstract fun ringCameraDao(): RingCameraDao
     abstract fun targetDeviceDao(): TargetDeviceDao
 
     companion object {
@@ -79,7 +77,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                        MIGRATION_11_12, MIGRATION_12_13
+                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
                     )
                     .fallbackToDestructiveMigration()
 

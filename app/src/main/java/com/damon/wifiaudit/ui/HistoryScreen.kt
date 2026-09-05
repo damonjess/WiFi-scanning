@@ -470,7 +470,12 @@ private fun BleRecordCard(
                     InfoChip(text = vendor, color = CyanAccent)
                 }
                 if (record.proximityUuid != null) {
-                    InfoChip(text = "iBeacon", color = MagentaAccent)
+                    val chipText = if (record.iBeaconMajor != null && record.iBeaconMinor != null) {
+                        "iBeacon (${record.iBeaconMajor}/${record.iBeaconMinor})"
+                    } else {
+                        "iBeacon"
+                    }
+                    InfoChip(text = chipText, color = MagentaAccent)
                 }
             }
 

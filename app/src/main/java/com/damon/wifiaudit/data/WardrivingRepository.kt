@@ -10,7 +10,6 @@ class WardrivingRepository(
     private val locationDao = db.locationFixDao()
     private val wifiDao = db.wifiSightingDao()
     private val bleDao = db.bleSightingDao()
-    private val ringDao = db.ringCameraDao()
     private val targetDao = db.targetDeviceDao()
 
     /**
@@ -87,41 +86,6 @@ class WardrivingRepository(
     suspend fun deleteFix(locationId: Long) {
         // Cascade delete handles wifi_sightings + ble_sightings automatically
         locationDao.deleteById(locationId)
-    }
-
-    suspend fun processAndSaveRingCamera(
-        macAddress: String,
-        deviceName: String,
-        ssid: String,
-        rssi: Int,
-        frequency: Int,
-        latitude: Double?,
-        longitude: Double?
-    ) {
-        val existing = ringDao.getCamera(macAddress)
-        if (existing != null) {
-            ringDao.upsert(
-                existing.copy(
-                    lastSeen = System.currentTimeMillis(),
-                    signalStrength = rssi,
-                    frequency = frequency,
-                    latitude = latitude ?: existing.latitude,
-                    longitude = longitude ?: existing.longitude
-                )
-            )
-        } else {
-            ringDao.upsert(
-                RingCamera(
-                    macAddress = macAddress,
-                    deviceName = deviceName,
-                    ssid = ssid,
-                    signalStrength = rssi,
-                    frequency = frequency,
-                    latitude = latitude,
-                    longitude = longitude
-                )
-            )
-        }
     }
 
     suspend fun processAndSaveTargetDevice(

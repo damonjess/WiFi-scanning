@@ -28,6 +28,8 @@ data class BleSightingRecord(
     val rssi: Int,
     val txPower: Int?,
     val proximityUuid: String?,
+    val iBeaconMajor: Int?,
+    val iBeaconMinor: Int?,
     val deviceModel: String?,
     val latitude: Double,
     val longitude: Double,
@@ -51,7 +53,7 @@ interface SightingHistoryDao {
     suspend fun getWifiHistory(): List<WifiSightingRecord>
 
     @Query("""
-        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
+        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.iBeaconMajor, b.iBeaconMinor, b.deviceModel,
                l.latitude, l.longitude, l.timestamp, v.vendorName,
                ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
         FROM ble_sightings b
@@ -81,7 +83,7 @@ interface SightingHistoryDao {
     ): PagingSource<Int, WifiSightingRecord>
 
     @Query("""
-        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
+        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.iBeaconMajor, b.iBeaconMinor, b.deviceModel,
                l.latitude, l.longitude, MAX(l.timestamp) as timestamp, v.vendorName,
                ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
         FROM ble_sightings b
@@ -109,7 +111,7 @@ interface SightingHistoryDao {
     fun getAllWifiSightings(): Flow<List<WifiSightingRecord>>
 
     @Query("""
-        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.deviceModel,
+        SELECT b.id, l.id as locationId, b.macAddress, b.deviceName, b.rssi, b.txPower, b.proximityUuid, b.iBeaconMajor, b.iBeaconMinor, b.deviceModel,
                l.latitude, l.longitude, l.timestamp, v.vendorName,
                ((SELECT COUNT(*) FROM ble_gatt_snapshots WHERE macAddress = b.macAddress) > 0) as hasGatt
         FROM ble_sightings b

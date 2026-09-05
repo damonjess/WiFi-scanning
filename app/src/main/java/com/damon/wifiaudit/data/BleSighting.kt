@@ -25,6 +25,8 @@ data class BleSighting(
     val rssi: Int,
     val txPower: Int?,
     val proximityUuid: String?,
+    val iBeaconMajor: Int? = null,
+    val iBeaconMinor: Int? = null,
     val deviceModel: String? = null,
     val scanRecord: ByteArray? = null
 )

@@ -17,7 +17,6 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val historyDao = db.sightingHistoryDao()
     private val locationDao = db.locationFixDao()
     private val sessionDao = db.scanSessionDao()
-    private val ringDao = db.ringCameraDao()
     private val targetDao = db.targetDeviceDao()
 
     val currentSnapshot = ScanStatusRepository.snapshot
@@ -196,12 +195,11 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     .groupBy { it.macAddress }
                     .map { (_, sightings) -> sightings.maxBy { it.rssi } }
 
-                val rings = ringDao.getAllRingCameras().first()
-                val targets = listOf("TRACKER", "SMART_HOME", "AUTO", "IOT").flatMap {
+                val targets = listOf("CAMERA", "TRACKER", "SMART_HOME", "AUTO", "IOT").flatMap {
                     targetDao.getByCategory(it).first()
                 }
 
-                updateHeatmapPoints(_wifiLocations.value, _bleLocations.value, rings, targets, sessionFixes)
+                updateHeatmapPoints(_wifiLocations.value, _bleLocations.value, targets, sessionFixes)
 
             } catch (e: Exception) {
                 android.util.Log.e("MapVM", "Failed to load session data", e)
@@ -212,7 +210,6 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private fun updateHeatmapPoints(
         wifi: List<WifiSightingRecord>,
         ble: List<BleSightingRecord>,
-        rings: List<RingCamera>,
         targets: List<TargetDevice>,
         fixes: List<LocationFix>
     ) {
@@ -247,15 +244,6 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        val ringPts = rings.filter { it.latitude != null && it.longitude != null }.map {
-            HeatmapPoint(
-                x = ((it.longitude!! - minLon) / lonRange).toFloat(),
-                y = (1.0 - (it.latitude!! - minLat) / latRange).toFloat(),
-                rssi = it.signalStrength, type = "RING", mac = it.macAddress, deviceName = it.deviceName,
-                timestamp = it.lastSeen, ssid = it.ssid, latitude = it.latitude, longitude = it.longitude
-            )
-        }
-
         val targetPts = targets.filter { it.latitude != null && it.longitude != null }.map {
             HeatmapPoint(
                 x = ((it.longitude!! - minLon) / lonRange).toFloat(),
@@ -265,6 +253,6 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        _rawPoints.value = (wifiPts + blePts + ringPts + targetPts).sortedBy { it.timestamp }
+        _rawPoints.value = (wifiPts + blePts + targetPts).sortedBy { it.timestamp }
     }
 }
