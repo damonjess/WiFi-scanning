@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -21,9 +22,6 @@ fun TargetedDevicesScreen() {
     
     val tabs = listOf(
         "Cameras" to "CAMERA", 
-        "Apple / Tags" to "APPLE",
-        "TVs & Media" to "MEDIA",
-        "Retail / ESL" to "RETAIL",
         "Trackers" to "TRACKER", 
         "Smart Home" to "SMART_HOME", 
         "Auto" to "AUTO", 
@@ -34,8 +32,11 @@ fun TargetedDevicesScreen() {
     val currentCategory = tabs[selectedTabIndex].second
     val devices by dao.getByCategory(currentCategory).collectAsState(initial = emptyList())
 
-    Column(modifier = Modifier.fillMaxSize().padding(top = 32.dp)) {
-        // Changed to ScrollableTabRow to prevent text squishing
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 32.dp)
+    ) {
         ScrollableTabRow(
             selectedTabIndex = selectedTabIndex,
             containerColor = Color.Transparent,
@@ -51,25 +52,61 @@ fun TargetedDevicesScreen() {
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(devices) { device ->
-                Surface(
-                    color = Color(0xFF1A1A23),
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                        Row {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF5252))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(device.deviceName, color = Color.White, style = MaterialTheme.typography.titleMedium)
+        if (devices.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No ${tabs[selectedTabIndex].first} detected yet.",
+                    color = Color.Gray,
+                    fontSize = 14.sp
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(devices) { device ->
+                    Surface(
+                        color = Color(0xFF1A1A23),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = device.deviceName,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "MAC: ${device.macAddress}",
+                                color = Color.LightGray,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Signal: ${device.signalStrength} dBm",
+                                color = Color(0xFFFFEA00),
+                                fontSize = 12.sp
+                            )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(device.macAddress, color = Color.Gray, fontSize = 12.sp)
-                        Text("Signal: ${device.signalStrength} dBm", color = Color(0xFFFFEA00), fontSize = 12.sp)
                     }
                 }
             }
