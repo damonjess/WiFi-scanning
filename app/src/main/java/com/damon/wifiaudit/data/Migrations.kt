@@ -146,3 +146,22 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
     }
 }
 
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS ring_cameras (
+                macAddress TEXT NOT NULL PRIMARY KEY,
+                deviceName TEXT NOT NULL,
+                ssid TEXT NOT NULL,
+                signalStrength INTEGER NOT NULL,
+                frequency INTEGER NOT NULL,
+                firstSeen INTEGER NOT NULL,
+                lastSeen INTEGER NOT NULL,
+                latitude REAL,
+                longitude REAL
+            )
+        """)
+    }
+}
+
+

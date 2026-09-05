@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,6 +27,7 @@ import com.damon.wifiaudit.ui.theme.DarkBackground
 import com.damon.wifiaudit.ui.theme.TextMuted
 import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RingCamerasScreen(
     viewModel: RingCamerasViewModel = viewModel()
@@ -37,7 +39,6 @@ fun RingCamerasScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Ring Cameras", color = Color.White) },
-                containerColor = DarkBackground,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = DarkBackground.copy(alpha = 0.95f),
                     titleContentColor = Color.White
@@ -284,7 +285,8 @@ private fun getSignalColor(signalStrength: Int): Color {
     }
 }
 
-private fun formatDateTime(dateTime: java.time.LocalDateTime): String {
+private fun formatDateTime(timestamp: Long): String {
     val formatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")
-    return dateTime.format(formatter)
+        .withZone(java.time.ZoneId.systemDefault())
+    return formatter.format(java.time.Instant.ofEpochMilli(timestamp))
 }

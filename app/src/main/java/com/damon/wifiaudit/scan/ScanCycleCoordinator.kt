@@ -54,6 +54,47 @@ class ScanCycleCoordinator(
             )
         }
 
+        // 1. Intercept Wi-Fi Ring Cameras
+        wifiResults.forEach { r ->
+            val bssid = r.BSSID.uppercase()
+            val ssid = r.SSID ?: ""
+            val vendorName = com.damon.wifiaudit.vendor.OuiVendorLookup.lookup(bssid)
+            
+            if (vendorName?.contains("Ring", ignoreCase = true) == true || ssid.startsWith("Ring-", ignoreCase = true)) {
+                repository.processAndSaveRingCamera(
+                    macAddress = bssid,
+                    deviceName = "Ring WiFi Camera",
+                    ssid = ssid.ifBlank { "<hidden>" },
+                    rssi = r.level,
+                    frequency = r.frequency,
+                    latitude = latitude,
+                    longitude = longitude
+                )
+            }
+        }
+
+        // 2. Intercept BLE Ring Devices
+        bleResults.forEach { d ->
+            val mac = d.macAddress.uppercase()
+            val vendorName = d.vendorName ?: d.manufacturerFromAdv
+            val name = d.deviceName ?: ""
+            
+            if (vendorName?.contains("Ring", ignoreCase = true) == true || 
+                name.contains("Ring", ignoreCase = true) || 
+                d.serviceUuids.contains("0000fecb-0000-1000-8000-00805f9b34fb")) {
+                
+                repository.processAndSaveRingCamera(
+                    macAddress = mac,
+                    deviceName = name.ifBlank { "Ring BLE Device" },
+                    ssid = "N/A (BLE)",
+                    rssi = d.rssi,
+                    frequency = 2400,
+                    latitude = latitude,
+                    longitude = longitude
+                )
+            }
+        }
+
         repository.recordFix(location, wifiSightings, bleSightings)
     }
 
