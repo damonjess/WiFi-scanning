@@ -68,6 +68,9 @@ class ScanCycleCoordinator(
         val cameraUuids = setOf("FECB", "FECC", "FECE") // Ring, Wyze, Arlo
         val autoUuids = setOf("FEF1", "FEF2", "FEF4", "FEF5")
         val iotUuids = setOf("FE68", "FE59", "FEE0")
+        val appleUuids = setOf("FD43", "FD44", "FD4D") 
+        val mediaUuids = setOf("FE75", "FE76", "FE77", "FD5A", "FD5B")
+        val retailUuids = setOf("1850") // Official Electronic Shelf Label UUID
 
         // 1. Intercept Wi-Fi Targets (Ring Cameras)
         wifiResults.forEach { r ->
@@ -137,6 +140,9 @@ class ScanCycleCoordinator(
                     else if (smartHomeUuids.contains(shortUuid)) category = "SMART_HOME"
                     else if (autoUuids.contains(shortUuid)) category = "AUTO"
                     else if (iotUuids.contains(shortUuid)) category = "IOT"
+                    else if (appleUuids.contains(shortUuid) || vendorName?.contains("Apple", ignoreCase = true) == true) category = "APPLE"
+                    else if (mediaUuids.contains(shortUuid) || vendorName?.contains("Samsung", ignoreCase = true) == true || vendorName?.contains("Roku", ignoreCase = true) == true) category = "MEDIA"
+                    else if (retailUuids.contains(shortUuid)) category = "RETAIL"
 
                     if (category != null) {
                         repository.processAndSaveTargetDevice(

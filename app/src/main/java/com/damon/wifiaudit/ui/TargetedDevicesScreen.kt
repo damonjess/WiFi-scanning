@@ -19,9 +19,11 @@ fun TargetedDevicesScreen() {
     val context = LocalContext.current
     val dao = remember { AppDatabase.getInstance(context).targetDeviceDao() }
     
-    // Added "Cameras" to handle Ring, Wyze, Arlo
     val tabs = listOf(
         "Cameras" to "CAMERA", 
+        "Apple / Tags" to "APPLE",
+        "TVs & Media" to "MEDIA",
+        "Retail / ESL" to "RETAIL",
         "Trackers" to "TRACKER", 
         "Smart Home" to "SMART_HOME", 
         "Auto" to "AUTO", 

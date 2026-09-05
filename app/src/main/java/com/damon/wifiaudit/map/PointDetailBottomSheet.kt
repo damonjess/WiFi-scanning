@@ -1,5 +1,6 @@
 package com.damon.wifiaudit.map
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -109,12 +110,17 @@ internal fun PointDetailBottomSheet(
 
             // Action
             Button(
-                onClick = { /* navigate to device detail */ },
+                onClick = { 
+                    // This assumes you have a NavController passed down, or use an intent
+                    // to launch your DeviceDetailScreen for active GATT connections.
+                    // For a quick test, you can log it:
+                    Log.d("Wardriving", "Initiating GATT connection to ${point.mac}")
+                },
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8C9EFF)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Open Device Details")
+                Text("Connect & Interrogate Device")
             }
         }
     }
