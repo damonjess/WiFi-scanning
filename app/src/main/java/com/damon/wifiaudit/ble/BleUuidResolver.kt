@@ -77,7 +77,6 @@ object BleUuidResolver {
         "FE48" to "Garmin",
         "FEA1" to "Polar",
         "FEA8" to "Whoop",
-        "FEAA" to "Withings",
         // Phones/Tech
         "FE60" to "Huawei",
         "FE61" to "Xiaomi",

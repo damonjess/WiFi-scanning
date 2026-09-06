@@ -21,7 +21,12 @@ object IBeaconParser {
 
     fun parse(scanRecord: ScanRecord?): IBeaconData? {
         val data = scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID) ?: return null
-        if (data.size < EXPECTED_PAYLOAD_LENGTH) return null
+        return parsePayload(data)
+    }
+
+    /** Parse the raw Apple (0x004C) manufacturer-data payload directly. */
+    fun parsePayload(data: ByteArray?): IBeaconData? {
+        if (data == null || data.size < EXPECTED_PAYLOAD_LENGTH) return null
         if (data[0] != IBEACON_TYPE_PREFIX || data[1] != IBEACON_LENGTH_BYTE) return null
 
         return try {
@@ -42,7 +47,7 @@ object IBeaconParser {
     }
 
     private fun bytesToUuidString(bytes: ByteArray): String {
-        val hex = bytes.joinToString("") { "%02x".format(it) }
+        val hex = bytes.joinToString("") { "%02X".format(it) }
         return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-" +
                 "${hex.substring(16, 20)}-${hex.substring(20, 32)}"
     }

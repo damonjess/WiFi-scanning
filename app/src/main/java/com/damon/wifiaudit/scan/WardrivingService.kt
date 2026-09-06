@@ -6,7 +6,6 @@ import android.app.*
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult as BleScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -19,6 +18,8 @@ import android.os.IBinder
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.damon.wifiaudit.ble.BleDeviceInfo
+import com.damon.wifiaudit.ble.BeaconDecoder
+import com.damon.wifiaudit.ble.BleScanSettings
 import com.damon.wifiaudit.ble.IBeaconParser
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WardrivingRepository
@@ -77,7 +78,8 @@ class WardrivingService : Service() {
     private fun upsertBle(result: BleScanResult) {
         val record = result.scanRecord
         val iBeacon = IBeaconParser.parse(record)
-        
+        val decoded = BeaconDecoder.decode(record)
+
         val deviceName = try {
             record?.deviceName ?: result.device.name
         } catch (_: SecurityException) {
@@ -93,6 +95,8 @@ class WardrivingService : Service() {
             iBeaconMajor = iBeacon?.major,
             iBeaconMinor = iBeacon?.minor,
             iBeaconUuid = iBeacon?.uuid,
+            beaconType = decoded?.type,
+            beaconPayload = decoded?.summary,
             lastSeenMillis = System.currentTimeMillis(),
             rawBytes = record?.bytes,
             isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -184,7 +188,7 @@ class WardrivingService : Service() {
 
         if (!hasBlePermission) return
         val scanner = bluetoothManager?.adapter?.bluetoothLeScanner ?: return
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).build()
+        val settings = BleScanSettings.wardriving()
         try {
             scanner.startScan(null, settings, bleScanCallback)
         } catch (_: SecurityException) { /* permission revoked mid-flight */ }

@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.damon.wifiaudit.ble.GattSnapshotSerializer
 import com.damon.wifiaudit.ble.LightGattManager
 import com.damon.wifiaudit.ble.AdvertisementParser
+import com.damon.wifiaudit.ble.BeaconDecoder
+import com.damon.wifiaudit.ble.DecodedBeacon
 import com.damon.wifiaudit.ble.ParsedAdvertisement
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WifiSightingRecord
@@ -48,6 +50,10 @@ class DeviceDetailViewModel(
     // Parsed advertisement from the latest sighting
     private val _advertisement = MutableStateFlow<ParsedAdvertisement?>(null)
     val advertisement: StateFlow<ParsedAdvertisement?> = _advertisement.asStateFlow()
+
+    // Decoded beacon format (Eddystone, AltBeacon, Tile, Ruuvi, etc.)
+    private val _decodedBeacon = MutableStateFlow<DecodedBeacon?>(null)
+    val decodedBeacon: StateFlow<DecodedBeacon?> = _decodedBeacon.asStateFlow()
 
     data class UiState(
         val name: String = "",
@@ -93,6 +99,7 @@ class DeviceDetailViewModel(
         val sighting = db.bleSightingDao().getLatestForMac(mac) ?: return
         val parsed = AdvertisementParser.parse(sighting.scanRecord)
         _advertisement.value = parsed
+        _decodedBeacon.value = BeaconDecoder.decodeBytes(sighting.scanRecord)
 
         _state.value = _state.value.copy(
             isConnectable = parsed.isConnectable,

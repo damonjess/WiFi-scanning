@@ -67,6 +67,7 @@ fun DeviceDetailScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val adv by viewModel.advertisement.collectAsState()
+    val decodedBeacon by viewModel.decodedBeacon.collectAsState()
     val heatmapEnabled by viewModel.heatmapEnabled.collectAsState()
     val heatmapPoints by viewModel.heatmapPoints.collectAsState()
     val classification by viewModel.classification.collectAsState()
@@ -155,6 +156,7 @@ fun DeviceDetailScreen(
                 item {
                     AdvertisementMetadataCard(
                         advertisement = adv,
+                        decodedBeacon = decodedBeacon,
                         onToggleRaw = { /* handled internally */ }
                     )
                 }
@@ -419,6 +421,7 @@ private fun DeviceHeader(
 @Composable
 private fun AdvertisementMetadataCard(
     advertisement: ParsedAdvertisement?,
+    decodedBeacon: com.damon.wifiaudit.ble.DecodedBeacon?,
     onToggleRaw: () -> Unit
 ) {
     var showRaw by remember { mutableStateOf(false) }
@@ -435,6 +438,44 @@ private fun AdvertisementMetadataCard(
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
+
+            // ── Beacon Format (decoded from advertisement) ──
+            decodedBeacon?.let { beacon ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF4CAF50).copy(alpha = 0.14f)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = beacon.type,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF66BB6A)
+                        )
+                        if (beacon.summary.isNotBlank()) {
+                            Text(
+                                text = beacon.summary,
+                                fontSize = 11.sp,
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        if (beacon.fields.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            beacon.fields.forEach { (key, value) ->
+                                Text(
+                                    text = "$key: $value",
+                                    fontSize = 10.sp,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             advertisement?.let { adv ->
                 Spacer(modifier = Modifier.height(12.dp))

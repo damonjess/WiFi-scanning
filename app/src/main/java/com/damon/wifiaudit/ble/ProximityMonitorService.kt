@@ -66,6 +66,8 @@ class ProximityMonitorService : Service() {
             val settings = ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .setLegacy(false) // include BLE 5 extended advertisements of tracked devices
+                .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
                 .build()
 
             scanCallback = object : ScanCallback() {

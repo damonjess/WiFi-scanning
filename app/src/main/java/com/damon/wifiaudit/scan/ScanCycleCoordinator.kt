@@ -121,6 +121,29 @@ class ScanCycleCoordinator(
                 label = "Apple AirTag"
             }
 
+            // VECTOR B1: Recognised beacon formats (Eddystone, AltBeacon, Tile, Ruuvi,
+            // Xiaomi, Fast Pair, Microsoft, Samsung) — detected by BeaconDecoder in
+            // the scan path. Takes priority over the generic service-UUID fallback
+            // because the format is positively identified, not just inferred.
+            if (detectedCategory == null && d.beaconType != null) {
+                val bt = d.beaconType
+                when {
+                    bt == "Tile Tracker" || bt.startsWith("Eddystone") || bt == "AltBeacon" -> {
+                        detectedCategory = "TRACKER"
+                        label = if (name.isNotBlank()) name else "$bt beacon"
+                    }
+                    bt.startsWith("RuuviTag") || bt == "Xiaomi MiBeacon" ||
+                        bt == "Google Fast Pair" || bt == "Microsoft Beacon" -> {
+                        detectedCategory = "IOT"
+                        label = if (name.isNotBlank()) name else bt
+                    }
+                    bt.startsWith("Samsung") -> {
+                        detectedCategory = "SMART_HOME"
+                        label = if (name.isNotBlank()) name else bt
+                    }
+                }
+            }
+
             // VECTOR B: Tile & Samsung SmartTags
             if (detectedCategory == null) {
                 if (vendorName.contains("Tile", ignoreCase = true) || nameUpper.contains("TILE")) {

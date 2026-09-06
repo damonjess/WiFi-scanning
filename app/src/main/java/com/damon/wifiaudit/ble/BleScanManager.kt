@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +40,7 @@ class BleScanManager(context: Context) {
     private fun upsertDevice(result: ScanResult) {
         val record = result.scanRecord
         val iBeacon = IBeaconParser.parse(record)
+        val decoded = BeaconDecoder.decode(record)
 
         val txPower = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE }
 
@@ -53,6 +53,8 @@ class BleScanManager(context: Context) {
             iBeaconMajor = iBeacon?.major,
             iBeaconMinor = iBeacon?.minor,
             iBeaconUuid = iBeacon?.uuid,
+            beaconType = decoded?.type,
+            beaconPayload = decoded?.summary,
             lastSeenMillis = System.currentTimeMillis(),
             manufacturerFromAdv = parseManufacturerData(record),
             rawBytes = record?.bytes,
@@ -95,9 +97,7 @@ class BleScanManager(context: Context) {
         val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
         if (_isScanning.value) return
 
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
+        val settings = BleScanSettings.foreground()
 
         try {
             scanner.startScan(null, settings, scanCallback)
