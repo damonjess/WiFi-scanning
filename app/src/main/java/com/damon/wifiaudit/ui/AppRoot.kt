@@ -154,7 +154,11 @@ fun AppRoot() {
                     )
                 }
                 3 -> RulesScreen()
-                4 -> TargetedDevicesScreen()
+                4 -> TargetedDevicesScreen(
+                    onOpenDeviceDetails = { mac, type ->
+                        detailTarget = mac to type
+                    }
+                )
             }
         }
     }

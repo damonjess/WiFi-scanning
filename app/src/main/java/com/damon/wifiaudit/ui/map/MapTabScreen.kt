@@ -8,6 +8,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +30,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.damon.wifiaudit.scan.ScanStatusRepository
+import com.damon.wifiaudit.ui.theme.TextMuted
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -198,75 +201,110 @@ fun MapTabScreen(
 
         // --- TOP BAR ---
         Surface(
-            color = Color(0xFF1A1A23).copy(alpha = 0.92f),
+            color = Color(0xFF1A1A23).copy(alpha = 0.95f),
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .fillMaxWidth()
                 .padding(top = 48.dp, start = 16.dp, end = 16.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                FilterChip(
-                    selected = showWifi,
-                    onClick = { viewModel.toggleWifi() },
-                    label = { Text("WiFi ${wifiPoints.size}", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Wifi, null, tint = Color(0xFF00BCD4), modifier = Modifier.size(16.dp))
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFF00BCD4).copy(alpha = 0.15f),
-                        selectedLabelColor = Color(0xFF00BCD4)
-                    ),
-                    modifier = Modifier.height(32.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Map Points & Filters",
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Surface(
+                        color = Color.White.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "$total pts",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
-                FilterChip(
-                    selected = showBle,
-                    onClick = { viewModel.toggleBle() },
-                    label = { Text("BLE ${blePoints.size}", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Bluetooth, null, tint = Color(0xFFE040FB), modifier = Modifier.size(16.dp))
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFFE040FB).copy(alpha = 0.15f),
-                        selectedLabelColor = Color(0xFFE040FB)
-                    ),
-                    modifier = Modifier.height(32.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = showWifi,
+                        onClick = { viewModel.toggleWifi() },
+                        label = { Text("WiFi ${wifiPoints.size}", fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Wifi, null, tint = Color(0xFF00BCD4), modifier = Modifier.size(16.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF00BCD4).copy(alpha = 0.15f),
+                            selectedLabelColor = Color(0xFF00BCD4)
+                        ),
+                        modifier = Modifier.height(32.dp)
+                    )
 
-                FilterChip(
-                    selected = showRing,
-                    onClick = { viewModel.toggleRing() },
-                    label = { Text("Ring ${ringPoints.size}", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Videocam, null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(16.dp))
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFFFF6B6B).copy(alpha = 0.15f),
-                        selectedLabelColor = Color(0xFFFF6B6B)
-                    ),
-                    modifier = Modifier.height(32.dp)
-                )
+                    FilterChip(
+                        selected = showBle,
+                        onClick = { viewModel.toggleBle() },
+                        label = { Text("BLE ${blePoints.size}", fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Bluetooth, null, tint = Color(0xFFE040FB), modifier = Modifier.size(16.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFE040FB).copy(alpha = 0.15f),
+                            selectedLabelColor = Color(0xFFE040FB)
+                        ),
+                        modifier = Modifier.height(32.dp)
+                    )
 
-                Spacer(modifier = Modifier.weight(1f))
-
-                Text(
-                    text = "$total pts",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                    FilterChip(
+                        selected = showRing,
+                        onClick = { viewModel.toggleRing() },
+                        label = { Text("Ring ${ringPoints.size}", fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Videocam, null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(16.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFFF6B6B).copy(alpha = 0.15f),
+                            selectedLabelColor = Color(0xFFFF6B6B)
+                        ),
+                        modifier = Modifier.height(32.dp)
+                    )
+                }
             }
         }
+
+        // --- COMPACT LEGEND (top-right, below top bar) ---
+        CompactLegend(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 136.dp, end = 16.dp)
+        )
 
         // --- RIGHT CONTROLS ---
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 12.dp, top = 110.dp, bottom = 180.dp),
+                .padding(end = 16.dp, top = 160.dp, bottom = 180.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MapControlButton(Icons.Default.MyLocation) {
@@ -287,13 +325,6 @@ fun MapTabScreen(
             MapControlButton(Icons.Default.Add) { mapViewRef?.controller?.zoomIn() }
             MapControlButton(Icons.Default.Remove) { mapViewRef?.controller?.zoomOut() }
         }
-
-        // --- COMPACT LEGEND (top-right) ---
-        CompactLegend(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 110.dp, end = 64.dp)
-        )
 
         // --- EMPTY STATE ---
         if (total == 0) {

@@ -1,9 +1,11 @@
 package com.damon.wifiaudit.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,7 +18,9 @@ import androidx.compose.ui.unit.sp
 import com.damon.wifiaudit.data.AppDatabase
 
 @Composable
-fun TargetedDevicesScreen() {
+fun TargetedDevicesScreen(
+    onOpenDeviceDetails: (macAddress: String, type: String) -> Unit = { _, _ -> }
+) {
     val context = LocalContext.current
     val dao = remember { AppDatabase.getInstance(context).targetDeviceDao() }
     
@@ -74,26 +78,49 @@ fun TargetedDevicesScreen() {
                 items(devices) { device ->
                     Surface(
                         color = Color(0xFF1A1A23),
-                        shape = MaterialTheme.shapes.medium
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onOpenDeviceDetails(device.macAddress, "BLE")
+                            }
                     ) {
                         Column(
                             modifier = Modifier
                                 .padding(16.dp)
                                 .fillMaxWidth()
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = Color(0xFFFF5252),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = device.deviceName,
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF5252),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = device.deviceName,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                }
+
+                                TextButton(
+                                    onClick = { onOpenDeviceDetails(device.macAddress, "BLE") },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF8C9EFF))
+                                ) {
+                                    Icon(Icons.Default.Bluetooth, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("GATT Scan", fontSize = 12.sp)
+                                }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
