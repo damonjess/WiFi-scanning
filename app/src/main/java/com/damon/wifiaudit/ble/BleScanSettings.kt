@@ -29,6 +29,5 @@ object BleScanSettings {
         .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
         .setLegacy(false)                                  // include BLE 5 extended ads (legacy + extended)
         .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT) // report duplicates
-        .setScanResultType(ScanSettings.SCAN_RESULT_TYPE_FULL)
         .build()
 }
