@@ -1,6 +1,7 @@
 package com.damon.wifiaudit.scan
 
 import android.content.Context
+import android.net.wifi.WifiManager
 import android.util.Log
 import com.damon.wifiaudit.data.AppDatabase
 import com.damon.wifiaudit.data.WardrivingRepository
@@ -36,6 +37,8 @@ class DiscoveryCoordinator(private val context: Context) {
     private val ssdpHelper = SsdpDiscoveryHelper()
     private val mdnsHelper = MdnsDiscoveryHelper(context)
     private val p2pHelper = P2pDiscoveryHelper()
+    private val onvifHelper = OnvifDiscoveryHelper()
+    private val nbnsHelper = NbnsDiscoveryHelper()
 
     private val _devices = MutableStateFlow<List<RobustLanScanner.Device>>(emptyList())
     val devices: StateFlow<List<RobustLanScanner.Device>> = _devices.asStateFlow()
@@ -50,6 +53,19 @@ class DiscoveryCoordinator(private val context: Context) {
     val discoveryFlow: SharedFlow<DiscoveryResult> = _discoveryFlow.asSharedFlow()
 
     private val deviceMap = ConcurrentHashMap<String, RobustLanScanner.Device>()
+    private var multicastLock: WifiManager.MulticastLock? = null
+
+    private fun acquireMulticastLock() {
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        multicastLock = wifiManager?.createMulticastLock("WiFiAuditDiscovery")?.apply {
+            acquire()
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        multicastLock?.let { if (it.isHeld) it.release() }
+        multicastLock = null
+    }
 
     fun start() {
         if (_scanning.value) return
@@ -66,7 +82,13 @@ class DiscoveryCoordinator(private val context: Context) {
             var ssdpJob: Job? = null
             var mdnsJob: Job? = null
             var p2pJob: Job? = null
+            var onvifJob: Job? = null
+            var nbnsJob: Job? = null
             var tcpScanJob: Job? = null
+
+            // Acquire multicast lock so the WiFi radio doesn't filter out
+            // multicast packets (SSDP, ONVIF WS-Discovery, mDNS).
+            acquireMulticastLock()
 
             try {
                 // Run SSDP in parallel
@@ -90,10 +112,64 @@ class DiscoveryCoordinator(private val context: Context) {
                     }
                 }
 
-                // Run mDNS in parallel
+                // Run ONVIF WS-Discovery in parallel — many IP cameras respond
+                // to this but NOT to SSDP.
+                onvifJob = launch {
+                    try {
+                        onvifHelper.discover(onResult = { device ->
+                            val vendor = device.types?.let { scanner.guessVendorFromHostname(it) }
+                            addOrMerge(
+                                RobustLanScanner.Device(
+                                    ip = device.ip,
+                                    mac = null,
+                                    hostname = device.types,
+                                    openPorts = emptyList(),
+                                    source = "onvif",
+                                    vendor = vendor
+                                ),
+                                arpCache = arpCache
+                            )
+                        })
+                    } catch (e: Exception) {
+                        Log.e(tag, "ONVIF discovery error", e)
+                    }
+                }
+
+                // Run NBNS (NetBIOS) discovery in parallel — picks up Windows
+                // machines, NAS, printers invisible to TCP port scanning.
+                nbnsJob = launch {
+                    try {
+                        val broadcastAddr = scanner.getBroadcastAddress()
+                        nbnsHelper.discover(broadcastAddress = broadcastAddr, onResult = { device ->
+                            addOrMerge(
+                                RobustLanScanner.Device(
+                                    ip = device.ip,
+                                    mac = device.macAddress,
+                                    hostname = device.netbiosName,
+                                    openPorts = emptyList(),
+                                    source = "nbns",
+                                    vendor = device.macAddress?.let { OuiVendorLookup.lookup(it) }
+                                        ?: device.netbiosName?.let { scanner.guessVendorFromHostname(it) }
+                                ),
+                                arpCache = arpCache
+                            )
+                        })
+                    } catch (e: Exception) {
+                        Log.e(tag, "NBNS discovery error", e)
+                    }
+                }
+
+                // Run mDNS in parallel with expanded service type coverage
                 mdnsJob = launch {
                     try {
-                        val serviceTypes = listOf("_http._tcp.", "_rtsp._tcp.", "_axis-video._tcp.", "_onvif._tcp.", "_workstation._tcp.")
+                        val serviceTypes = listOf(
+                            "_http._tcp.", "_rtsp._tcp.", "_axis-video._tcp.",
+                            "_onvif._tcp.", "_workstation._tcp.",
+                            "_printer._tcp.", "_ipp._tcp.", "_airplay._tcp.",
+                            "_googlecast._tcp.", "_smb._tcp.", "_ssh._tcp.",
+                            "_airprint._tcp.", "_esphomelib._tcp.", "_homekit._tcp.",
+                            "_matter._tcp.", "_hap._tcp.", "_raop._tcp."
+                        )
                         serviceTypes.forEach { type ->
                             launch {
                                 mdnsHelper.discoverServices(type).collect { (ip, info) ->
@@ -149,6 +225,8 @@ class DiscoveryCoordinator(private val context: Context) {
                 tcpScanJob.join()
                 delay(1500)
                 ssdpJob.cancelAndJoin()
+                onvifJob.cancelAndJoin()
+                nbnsJob.cancelAndJoin()
                 mdnsJob.cancelAndJoin()
                 p2pJob.cancelAndJoin()
 
@@ -159,11 +237,14 @@ class DiscoveryCoordinator(private val context: Context) {
             } finally {
                 // Ensure cleanup happens even if an exception or cancellation occurs.
                 ssdpJob?.cancel()
+                onvifJob?.cancel()
+                nbnsJob?.cancel()
                 mdnsJob?.cancel()
                 p2pJob?.cancel()
                 tcpScanJob?.cancel()
                 _scanning.value = false
                 scanJob = null
+                releaseMulticastLock()
             }
         }
     }
@@ -286,5 +367,6 @@ class DiscoveryCoordinator(private val context: Context) {
         scanner.cancelScan()
         _scanning.value = false
         _progress.value = 0 to 0
+        releaseMulticastLock()
     }
 }

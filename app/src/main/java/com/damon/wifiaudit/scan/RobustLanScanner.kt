@@ -345,6 +345,48 @@ class RobustLanScanner(private val context: Context) {
         }
     }
 
+    /**
+     * Computes the directed broadcast address for the current subnet.
+     * E.g. for 192.168.1.42/24 this returns 192.168.1.255.
+     * Falls back to 255.255.255.255 if the subnet can't be determined.
+     */
+    fun getBroadcastAddress(): String {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = cm?.activeNetwork
+        if (network != null) {
+            try {
+                val linkProps = cm.getLinkProperties(network)
+                val ipv4 = linkProps?.linkAddresses?.firstOrNull { it.address is Inet4Address }
+                if (ipv4 != null) {
+                    val ip = ipv4.address.hostAddress ?: return "255.255.255.255"
+                    val prefixLength = ipv4.prefixLength
+                    if (prefixLength > 0 && prefixLength <= 32) {
+                        val ipInt = ipToInt(ipv4.address as Inet4Address)
+                        val mask = if (prefixLength == 32) -1 else (0xFFFFFFFF.toInt() shl (32 - prefixLength))
+                        val networkAddr = ipInt and mask
+                        val broadcast = networkAddr or mask.inv()
+                        return intToIp(broadcast)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to compute broadcast address", e)
+            }
+        }
+        return "255.255.255.255"
+    }
+
+    private fun ipToInt(addr: Inet4Address): Int {
+        val bytes = addr.address
+        return ((bytes[0].toInt() and 0xFF) shl 24) or
+               ((bytes[1].toInt() and 0xFF) shl 16) or
+               ((bytes[2].toInt() and 0xFF) shl 8) or
+               (bytes[3].toInt() and 0xFF)
+    }
+
+    private fun intToIp(value: Int): String {
+        return "${(value shr 24) and 0xFF}.${(value shr 16) and 0xFF}.${(value shr 8) and 0xFF}.${value and 0xFF}"
+    }
+
     private fun readArp(ip: String): String? {
         return try {
             BufferedReader(FileReader("/proc/net/arp")).useLines { lines ->

@@ -101,4 +101,47 @@ class SsdpDiscoveryHelper {
         val info = server ?: usn ?: "SSDP Device"
         return ip to info
     }
+
+    /**
+     * Fetch the UPnP device description XML from the LOCATION URL returned
+     * by SSDP. This extracts friendlyName, manufacturer, and modelName —
+     * information that the SSDP response itself doesn't carry.
+     *
+     * Returns null on any failure (timeout, parse error, unreachable).
+     */
+    suspend fun fetchDeviceDescription(locationUrl: String): DeviceDescription? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = java.net.URL(locationUrl)
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 1500
+                conn.readTimeout = 1500
+                conn.instanceFollowRedirects = true
+
+                val xml = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+
+                val friendlyName = Regex("<friendlyName>(.*?)</friendlyName>", RegexOption.DOT_MATCHES_ALL)
+                    .find(xml)?.groupValues?.get(1)?.trim()
+                val manufacturer = Regex("<manufacturer>(.*?)</manufacturer>", RegexOption.DOT_MATCHES_ALL)
+                    .find(xml)?.groupValues?.get(1)?.trim()
+                val modelName = Regex("<modelName>(.*?)</modelName>", RegexOption.DOT_MATCHES_ALL)
+                    .find(xml)?.groupValues?.get(1)?.trim()
+                val deviceType = Regex("<deviceType>(.*?)</deviceType>", RegexOption.DOT_MATCHES_ALL)
+                    .find(xml)?.groupValues?.get(1)?.trim()
+
+                if (friendlyName == null && manufacturer == null && modelName == null) null
+                else DeviceDescription(friendlyName, manufacturer, modelName, deviceType)
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    data class DeviceDescription(
+        val friendlyName: String?,
+        val manufacturer: String?,
+        val modelName: String?,
+        val deviceType: String?
+    )
 }
