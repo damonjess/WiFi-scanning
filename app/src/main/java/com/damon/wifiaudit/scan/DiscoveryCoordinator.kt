@@ -30,6 +30,7 @@ class DiscoveryCoordinator(private val context: Context) {
 
     private val tag = "DiscoveryCoordinator"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var scanJob: Job? = null
 
     private val scanner = RobustLanScanner(context)
     private val ssdpHelper = SsdpDiscoveryHelper()
@@ -57,99 +58,123 @@ class DiscoveryCoordinator(private val context: Context) {
         _devices.value = emptyList()
         _progress.value = 0 to 0
 
-        scope.launch {
-            // Run SSDP in parallel
-            val ssdpJob = launch {
-                try {
-                    ssdpHelper.discover(onResult = { ip, info ->
-                        addOrMerge(
-                            RobustLanScanner.Device(
-                                ip = ip,
-                                mac = null,
-                                hostname = info,
-                                openPorts = emptyList(),
-                                source = "ssdp",
-                                vendor = scanner.guessVendorFromHostname(info)
-                            )
-                        )
-                    })
-                } catch (e: Exception) {
-                    Log.e(tag, "SSDP discovery error", e)
-                }
-            }
+        // Cache the ARP table once per scan to avoid re-reading /proc/net/arp
+        // on every single discovery result.
+        val arpCache = ArpCacheReader.readArpTable()
 
-            // Run mDNS in parallel
-            val mdnsJob = launch {
-                try {
-                    val serviceTypes = listOf("_http._tcp.", "_rtsp._tcp.", "_axis-video._tcp.", "_onvif._tcp.", "_workstation._tcp.")
-                    serviceTypes.forEach { type ->
-                        launch {
-                            mdnsHelper.discoverServices(type).collect { (ip, info) ->
-                                addOrMerge(
-                                    RobustLanScanner.Device(
-                                        ip = ip!!,
-                                        mac = null,
-                                        hostname = info,
-                                        openPorts = emptyList(),
-                                        source = "mdns",
-                                        vendor = scanner.guessVendorFromHostname(info)
+        scanJob = scope.launch {
+            var ssdpJob: Job? = null
+            var mdnsJob: Job? = null
+            var p2pJob: Job? = null
+            var tcpScanJob: Job? = null
+
+            try {
+                // Run SSDP in parallel
+                ssdpJob = launch {
+                    try {
+                        ssdpHelper.discover(onResult = { ip, info ->
+                            addOrMerge(
+                                RobustLanScanner.Device(
+                                    ip = ip,
+                                    mac = null,
+                                    hostname = info,
+                                    openPorts = emptyList(),
+                                    source = "ssdp",
+                                    vendor = scanner.guessVendorFromHostname(info)
+                                ),
+                                arpCache = arpCache
+                            )
+                        })
+                    } catch (e: Exception) {
+                        Log.e(tag, "SSDP discovery error", e)
+                    }
+                }
+
+                // Run mDNS in parallel
+                mdnsJob = launch {
+                    try {
+                        val serviceTypes = listOf("_http._tcp.", "_rtsp._tcp.", "_axis-video._tcp.", "_onvif._tcp.", "_workstation._tcp.")
+                        serviceTypes.forEach { type ->
+                            launch {
+                                mdnsHelper.discoverServices(type).collect { (ip, info) ->
+                                    if (ip == null) return@collect
+                                    addOrMerge(
+                                        RobustLanScanner.Device(
+                                            ip = ip,
+                                            mac = null,
+                                            hostname = info,
+                                            openPorts = emptyList(),
+                                            source = "mdns",
+                                            vendor = scanner.guessVendorFromHostname(info)
+                                        ),
+                                        arpCache = arpCache
                                     )
-                                )
+                                }
                             }
                         }
+                    } catch (e: Exception) {
+                        Log.e(tag, "mDNS discovery error", e)
                     }
-                } catch (e: Exception) {
-                    Log.e(tag, "mDNS discovery error", e)
                 }
-            }
 
-            // Run P2P Discovery in parallel
-            val p2pJob = launch {
-                try {
-                    p2pHelper.discover().collect { (ip, info) ->
-                        addOrMerge(
-                            RobustLanScanner.Device(
-                                ip = ip,
-                                mac = null,
-                                hostname = info,
-                                openPorts = emptyList(),
-                                source = "p2p",
-                                vendor = null
+                // Run P2P Discovery in parallel
+                p2pJob = launch {
+                    try {
+                        p2pHelper.discover().collect { (ip, info) ->
+                            addOrMerge(
+                                RobustLanScanner.Device(
+                                    ip = ip,
+                                    mac = null,
+                                    hostname = info,
+                                    openPorts = emptyList(),
+                                    source = "p2p",
+                                    vendor = null
+                                ),
+                                arpCache = arpCache
                             )
-                        )
+                        }
+                    } catch (e: Exception) {
+                        Log.e(tag, "P2P discovery error", e)
                     }
-                } catch (e: Exception) {
-                    Log.e(tag, "P2P discovery error", e)
                 }
+
+                // Run active TCP/ICMP scan
+                tcpScanJob = scanner.scan(
+                    timeoutMs = 400,
+                    onResult = { addOrMerge(it, arpCache = arpCache) },
+                    onProgress = { cur, tot -> _progress.value = cur to tot },
+                    onFinished = { }
+                )
+
+                tcpScanJob.join()
+                delay(1500)
+                ssdpJob.cancelAndJoin()
+                mdnsJob.cancelAndJoin()
+                p2pJob.cancelAndJoin()
+
+                // Refresh the ARP cache after TCP probes have populated it,
+                // then enrich any devices still missing MAC addresses.
+                val refreshedArp = ArpCacheReader.readArpTable()
+                enrichMacsFromArp(refreshedArp)
+            } finally {
+                // Ensure cleanup happens even if an exception or cancellation occurs.
+                ssdpJob?.cancel()
+                mdnsJob?.cancel()
+                p2pJob?.cancel()
+                tcpScanJob?.cancel()
+                _scanning.value = false
+                scanJob = null
             }
-
-            // Run active TCP/ICMP scan
-            val scanJob = scanner.scan(
-                timeoutMs = 400,
-                onResult = { addOrMerge(it) },
-                onProgress = { cur, tot -> _progress.value = cur to tot },
-                onFinished = { }
-            )
-
-            scanJob.join()
-            delay(1500)
-            ssdpJob.cancelAndJoin()
-            mdnsJob.cancelAndJoin()
-            p2pJob.cancelAndJoin()
-
-            enrichMacsFromArp()
-            _scanning.value = false
         }
     }
 
-    private fun enrichMacsFromArp() {
-        val arpTable = ArpCacheReader.readArpTable()
-        if (arpTable.isEmpty()) return
+    private fun enrichMacsFromArp(arpCache: Map<String, String>) {
+        if (arpCache.isEmpty()) return
 
         var changed = false
         deviceMap.forEach { (ip, dev) ->
             if (dev.mac == null) {
-                arpTable[ip]?.let { mac ->
+                arpCache[ip]?.let { mac ->
                     val vendor = OuiVendorLookup.lookup(mac) ?: dev.vendor
                     val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi(dev.hostname ?: "", vendor)
                     val vulnMatches = SurveillanceDeviceWatchdog.analyzeVulnerabilities(vendor, dev.openPorts)
@@ -185,8 +210,8 @@ class DiscoveryCoordinator(private val context: Context) {
         }
     }
 
-    private fun addOrMerge(dev: RobustLanScanner.Device) {
-        val arpMac = dev.mac ?: ArpCacheReader.readArpTable()[dev.ip]
+    private fun addOrMerge(dev: RobustLanScanner.Device, arpCache: Map<String, String> = emptyMap()) {
+        val arpMac = dev.mac ?: arpCache[dev.ip]
         val existing = deviceMap[dev.ip]
         
         val currentVendor = dev.vendor ?: (arpMac?.let { OuiVendorLookup.lookup(it) })
@@ -256,7 +281,10 @@ class DiscoveryCoordinator(private val context: Context) {
     }
 
     fun stop() {
-        scanner.cancel()
-        scope.cancel()
+        scanJob?.cancel()
+        scanJob = null
+        scanner.cancelScan()
+        _scanning.value = false
+        _progress.value = 0 to 0
     }
 }

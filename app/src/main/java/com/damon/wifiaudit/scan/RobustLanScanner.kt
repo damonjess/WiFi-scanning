@@ -61,13 +61,19 @@ class RobustLanScanner(private val context: Context) {
 
         Log.i(tag, "Scanning $total hosts with timeout ${timeoutMs}ms…")
 
-        // Use a semaphore to limit concurrent IP scans
-        val semaphore = Semaphore(64)
+        // Use a single global semaphore to bound total concurrent sockets.
+        // Android typically has a ~1024 file descriptor limit; each TCP socket
+        // consumes one. With 128 permits and 400ms timeout, we stay well within
+        // limits while still achieving good parallelism.
+        val socketSemaphore = Semaphore(128)
+        // Bound the number of hosts being probed simultaneously to avoid
+        // excessive coroutine creation (254–762 hosts × 42 port probes each).
+        val hostSemaphore = Semaphore(32)
 
         targets.map { ip ->
             launch {
-                semaphore.withPermit {
-                    val dev = probeHost(ip, timeoutMs)
+                hostSemaphore.withPermit {
+                    val dev = probeHost(ip, timeoutMs, socketSemaphore)
                     if (dev != null && foundIps.add(ip)) {
                         onResult(dev)
                     }
@@ -82,15 +88,21 @@ class RobustLanScanner(private val context: Context) {
         onFinished()
     }
 
-    private suspend fun probeHost(ip: String, timeoutMs: Int): Device? = coroutineScope {
-        if (!isHostAlive(ip, timeoutMs)) return@coroutineScope null
-
+    /**
+     * Probes a single host: scans the full [probePorts] set in parallel (bounded
+     * by the global [socketSemaphore]) and considers the host alive if ANY port
+     * is open, it appears in the ARP cache, or [InetAddress.isReachable] succeeds.
+     *
+     * This replaces the previous two-phase approach (alive-check then full scan)
+     * which doubled the work and missed hosts whose only open ports weren't in
+     * the small alive-check set.
+     */
+    private suspend fun probeHost(ip: String, timeoutMs: Int, socketSemaphore: Semaphore): Device? = coroutineScope {
         val openPorts = mutableListOf<Int>()
-        val portSemaphore = Semaphore(10)
-        
+
         val portJobs = probePorts.map { port ->
             async(Dispatchers.IO) {
-                portSemaphore.withPermit {
+                socketSemaphore.withPermit {
                     if (tcpConnect(ip, port, timeoutMs)) {
                         synchronized(openPorts) { openPorts.add(port) }
                     }
@@ -100,25 +112,36 @@ class RobustLanScanner(private val context: Context) {
         portJobs.awaitAll()
 
         val mac = readArp(ip)
+        val isReachable = if (openPorts.isEmpty() && mac == null) {
+            try {
+                InetAddress.getByName(ip).isReachable(timeoutMs)
+            } catch (_: Exception) {
+                false
+            }
+        } else false
+
+        val isAlive = openPorts.isNotEmpty() || mac != null || isReachable
+        if (!isAlive) return@coroutineScope null
+
         val hostname = resolveHostname(ip)
-        
+
         val httpPort = when {
             80 in openPorts -> 80
             8080 in openPorts -> 8080
             else -> null
         }
-        
+
         val httpVendor = httpPort?.let { httpFingerprint(ip, it) }
         val rtspVendor = if (554 in openPorts) rtspFingerprint(ip, 554) else null
         val ftpVendor = if (21 in openPorts) ftpFingerprint(ip, 21) else null
-        
-        val vendor = mac?.let { OuiVendorLookup.lookup(it) } 
+
+        val vendor = mac?.let { OuiVendorLookup.lookup(it) }
             ?: httpVendor
             ?: rtspVendor
             ?: ftpVendor
             ?: guessVendorFromHostname(hostname)
             ?: mac?.let { guessVendorFromMac(it) }
-        
+
         val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi(hostname ?: "", vendor)
         val vulnMatches = SurveillanceDeviceWatchdog.analyzeVulnerabilities(vendor, openPorts)
         val allMatches = (listOfNotNull(wifiMatch) + vulnMatches).distinctBy { it.category to it.matchedOn }
@@ -128,23 +151,10 @@ class RobustLanScanner(private val context: Context) {
             mac = mac,
             hostname = hostname,
             openPorts = openPorts.sorted(),
-            source = if (openPorts.isNotEmpty()) "tcp" else "icmp",
+            source = if (openPorts.isNotEmpty()) "tcp" else if (isReachable) "icmp" else "arp",
             vendor = vendor,
             securityMatches = allMatches
         )
-    }
-
-    private suspend fun isHostAlive(ip: String, timeoutMs: Int): Boolean = withContext(Dispatchers.IO) {
-        val commonPorts = intArrayOf(80, 443, 554, 8080, 8000)
-        for (port in commonPorts) {
-            if (tcpConnect(ip, port, timeoutMs)) return@withContext true
-        }
-        
-        try {
-            InetAddress.getByName(ip).isReachable(timeoutMs)
-        } catch (_: Exception) {
-            false
-        }
     }
 
     private suspend fun ftpFingerprint(ip: String, port: Int): String? {
@@ -175,7 +185,7 @@ class RobustLanScanner(private val context: Context) {
                     val out = socket.getOutputStream()
                     val request = "OPTIONS rtsp://$ip:$port RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: WiFiAudit\r\n\r\n"
                     out.write(request.toByteArray())
-                    
+
                     val reader = socket.getInputStream().bufferedReader()
                     val sb = StringBuilder()
                     var line: String?
@@ -183,9 +193,9 @@ class RobustLanScanner(private val context: Context) {
                         line = reader.readLine()
                         if (line.isNullOrEmpty()) break
                         sb.append(line).append("\n")
-                        if (sb.length > 2000) break 
+                        if (sb.length > 2000) break
                     }
-                    
+
                     val response = sb.toString().lowercase()
                     when {
                         response.contains("server: hikvision") || response.contains("hikvision") -> "Hikvision"
@@ -290,7 +300,7 @@ class RobustLanScanner(private val context: Context) {
     private fun guessVendorFromMac(mac: String): String? {
         val clean = mac.replace(":", "").replace("-", "").uppercase()
         return when {
-            clean.startsWith("6C198F") || clean.startsWith("000F3D") || 
+            clean.startsWith("6C198F") || clean.startsWith("000F3D") ||
             clean.startsWith("C0A0BB") || clean.startsWith("F07D68") -> "D-Link"
             clean.startsWith("000C41") -> "Cisco-Linksys"
             clean.startsWith("00E0FC") || clean.startsWith("00C0CA") -> "Hikvision"
@@ -358,7 +368,11 @@ class RobustLanScanner(private val context: Context) {
         } catch (_: Exception) { null }
     }
 
-    fun cancel() {
-        scope.cancel()
+    /**
+     * Cancel any in-flight scan without destroying the permanent scope.
+     * Called by [DiscoveryCoordinator.stop()].
+     */
+    fun cancelScan() {
+        scope.coroutineContext[Job]?.cancelChildren()
     }
 }

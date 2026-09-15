@@ -22,7 +22,7 @@ class P2pDiscoveryHelper {
         val socket = try {
             DatagramSocket().apply {
                 broadcast = true
-                soTimeout = 2500
+                soTimeout = 500
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to create DatagramSocket", e)
@@ -68,7 +68,7 @@ class P2pDiscoveryHelper {
                     
                     emit(ip to "P2P Device ($protocol, UID: $uid)")
                 } catch (_: java.net.SocketTimeoutException) {
-                    break
+                    continue
                 } catch (e: Exception) {
                     Log.e(tag, "Error receiving P2P packet", e)
                 }
