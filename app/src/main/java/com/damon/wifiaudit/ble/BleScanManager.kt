@@ -15,6 +15,10 @@ class BleScanManager(private val context: Context) {
     private val bluetoothAdapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
 
+    // BLE tracker and spoofing detectors — shared state across scan sessions
+    val trackerDetector = BleTrackerDetector()
+    val spoofingDetector = BleSpoofingDetector()
+
     private val _devices = MutableStateFlow<Map<String, BleDeviceInfo>>(emptyMap())
     val devices: StateFlow<Map<String, BleDeviceInfo>> = _devices.asStateFlow()
 
@@ -68,6 +72,22 @@ class BleScanManager(private val context: Context) {
         _devices.value = _devices.value.toMutableMap().apply {
             put(info.macAddress, info)
         }
+
+        // Feed sighting into tracker detector
+        trackerDetector.recordSighting(
+            macAddress = info.macAddress,
+            deviceName = info.deviceName,
+            manufacturerFromAdv = info.manufacturerFromAdv,
+            serviceUuids = info.serviceUuids,
+            iBeaconUuid = info.iBeaconUuid,
+            iBeaconMajor = info.iBeaconMajor,
+            iBeaconMinor = info.iBeaconMinor,
+            beaconType = info.beaconType,
+            rssi = info.rssi
+        )
+
+        // Feed into spoofing detector
+        spoofingDetector.recordDevice(info)
     }
 
     private fun parseManufacturerData(record: android.bluetooth.le.ScanRecord?): String? {
@@ -124,6 +144,39 @@ class BleScanManager(private val context: Context) {
 
     fun clearResults() {
         _devices.value = emptyMap()
+    }
+
+    /**
+     * Profile a BLE device's GATT services.
+     * User-triggered — connects to the device and enumerates all services,
+     * characteristics, and their properties.
+     */
+    @SuppressLint("MissingPermission")
+    suspend fun profileDevice(macAddress: String): BleGattProfiler.GattProfile? {
+        val device = bluetoothAdapter?.getRemoteDevice(macAddress) ?: return null
+        val profiler = BleGattProfiler(context)
+        return profiler.profileDevice(device)
+    }
+
+    /**
+     * Get any tracker alerts detected from cross-session analysis.
+     */
+    fun getTrackerAlerts(): List<BleTrackerDetector.TrackerAlert> {
+        return trackerDetector.detectTrackers()
+    }
+
+    /**
+     * Get any spoofing alerts detected from pattern analysis.
+     */
+    fun getSpoofingAlerts(): List<BleSpoofingDetector.SpoofingAlert> {
+        return spoofingDetector.detectSpoofing()
+    }
+
+    /**
+     * Clean up old tracker history (devices not seen in 24h).
+     */
+    fun cleanupTrackerHistory() {
+        trackerDetector.cleanupOldEntries()
     }
 
     fun isBluetoothEnabled(): Boolean = bluetoothAdapter?.isEnabled == true

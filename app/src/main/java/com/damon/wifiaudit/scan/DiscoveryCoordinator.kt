@@ -234,6 +234,9 @@ class DiscoveryCoordinator(private val context: Context) {
                 // then enrich any devices still missing MAC addresses.
                 val refreshedArp = ArpCacheReader.readArpTable()
                 enrichMacsFromArp(refreshedArp)
+
+                // Run security assessment on devices with open ports
+                runSecurityAssessment()
             } finally {
                 // Ensure cleanup happens even if an exception or cancellation occurs.
                 ssdpJob?.cancel()
@@ -359,6 +362,50 @@ class DiscoveryCoordinator(private val context: Context) {
                 device = networkDevice
             ))
         }
+    }
+
+    // ============ SECURITY ASSESSMENT ============
+
+    private val securityAssessor = SecurityAssessmentHelper()
+    private val _securityFindings = MutableStateFlow<List<SecurityAssessmentHelper.SecurityFinding>>(emptyList())
+    val securityFindings: StateFlow<List<SecurityAssessmentHelper.SecurityFinding>> = _securityFindings.asStateFlow()
+
+    /**
+     * Run security assessment on all discovered devices that have open ports.
+     * This performs passive HTTP checks and port-based vulnerability matching.
+     */
+    private suspend fun runSecurityAssessment() {
+        val devicesToAssess = deviceMap.values
+            .filter { it.openPorts.isNotEmpty() }
+            .map { it.ip to it.openPorts }
+            .take(20) // Limit to 20 devices to avoid excessive network traffic
+
+        if (devicesToAssess.isEmpty()) return
+
+        val findings = securityAssessor.assessDevices(devicesToAssess)
+        val allFindings = findings.flatMap { it.findings }
+
+        if (allFindings.isNotEmpty()) {
+            _securityFindings.value = allFindings
+            Log.i(tag, "Security assessment found ${allFindings.size} findings across ${devicesToAssess.size} devices")
+        }
+    }
+
+    /**
+     * Manually check default credentials on a specific device.
+     * User-triggered only — not part of automatic scanning.
+     */
+    suspend fun checkDefaultCredentials(ip: String, port: Int, isHttps: Boolean = false): Pair<String, String>? {
+        return securityAssessor.checkDefaultCredentials(ip, port, isHttps)
+    }
+
+    // ============ VULNERABILITY MATCHING ============
+
+    /**
+     * Get port-based vulnerability risks for a device.
+     */
+    fun getPortRisks(openPorts: List<Int>): List<VulnerabilityDatabase.PortRisk> {
+        return VulnerabilityDatabase.assessPorts(openPorts)
     }
 
     fun stop() {
