@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class BleScanManager(context: Context) {
+class BleScanManager(private val context: Context) {
 
     private val bluetoothAdapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
@@ -94,6 +94,9 @@ class BleScanManager(context: Context) {
     /** Caller must have already confirmed BLUETOOTH_SCAN (API31+) / ACCESS_FINE_LOCATION (pre-31). */
     @SuppressLint("MissingPermission")
     fun startScan() {
+        // Load the full company ID database on first scan
+        BleUuidResolver.initCompanyIds(context)
+
         val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
         if (_isScanning.value) return
 

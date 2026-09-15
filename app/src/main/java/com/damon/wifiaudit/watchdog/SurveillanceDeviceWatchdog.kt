@@ -21,16 +21,30 @@ object SurveillanceDeviceWatchdog {
         "Hikvision", "Dahua", "Ezviz", "Uniview", "Reolink", "Foscam", "Amcrest",
         "Swann", "Lorex", "Wyze", "Arlo", "Eufy", "Anker Innovations", "Vivotek",
         "Geovision", "Annke", "Zmodo", "Axis Communications", "Bosch Security",
-        "Honeywell Video", "Yi Technology", "SimCam", "Blink", "Hanwha", "LTS"
+        "Honeywell Video", "Yi Technology", "SimCam", "Blink", "Hanwha", "LTS",
+        "TP-Link", "Tapo", "D-Link", "Netgear", "Dome", "Xiaomi", "Imou",
+        "Kenwood", "Vivotek", "Sony", "Panasonic", "Canon", "Nikon", "Hikvision",
+        "Flir", "Brinno", "Zmodo", "Dericam", "Sunba", "Wansview", "Tenvis",
+        "Bosch", "Pelco", "Avigilon", "Milestone", "Genetec", "Mobotix", "Arecont",
+        "Spektir", "Acti", "Sricam", "Ness", "Swann", "Defender", "Lorex",
+        "Amcrest", "Reolink", "ZOSI", "OOSSXX", "YESKAMO", "REOLINK"
     )
 
     private val hiddenCameraKeywords = listOf(
         "Tuya", "Espressif", "AI-Thinker", "Shenzhen", "Hangzhou", "Broadlink",
-        "Sonoff", "XMEye", "iCSee", "V380", "Yoosee", "EseeCloud"
+        "Sonoff", "XMEye", "iCSee", "V380", "Yoosee", "EseeCloud",
+        "Goke", "Hi3518", "Hi3516", "Xiongmai", "JWIPC", "Lens", "Ruijie",
+        "Wanscam", "Foscam", "IPCam", "Secur", "Smartcam", "Wyzecam",
+        "ESP32", "ESP8266", "ESP", "M5Stack", "Wemos", "NodeMCU"
     )
 
     private val routerVendorKeywords = listOf(
-        "TP-Link", "Netgear", "D-Link", "Linksys", "ASUS", "Huawei", "ZTE", "MikroTik", "Ubiquiti", "Cisco"
+        "TP-Link", "Netgear", "D-Link", "Linksys", "ASUS", "Huawei", "ZTE",
+        "MikroTik", "Ubiquiti", "Cisco", "Apple", "Google", "Samsung",
+        "Xiaomi", "Tenda", "TRENDnet", "Buffalo", "Belkin", "Synology",
+        "QNAP", "Ruijie", "Raspberry Pi", "AVM", "FRITZ!", "Devolo",
+        "Huawei", "ZTE", "Askey", "Sagemcom", "Technicolor", "Arris",
+        "Netgear", "Motorola", "Sercomm", "Compal", "Smartron"
     )
 
     private val doorbellVendorKeywords = listOf("Ring LLC", "Ring Inc", "Ring Solutions", "Ring.com", "Amazon Technologies")

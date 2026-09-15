@@ -1,8 +1,36 @@
 package com.damon.wifiaudit.ble
 
+import android.content.Context
+import org.json.JSONArray
 import java.util.UUID
 
 object BleUuidResolver {
+
+    private var companyIdsLoaded = false
+    private val companyIdsMap = HashMap<Int, String>()
+
+    /**
+     * Loads the full Bluetooth SIG Company Identifier list (4,000+ entries)
+     * from the raw resource file ble_company_ids.json.
+     * Called once on first use — subsequent calls are no-ops.
+     */
+    fun initCompanyIds(context: Context) {
+        if (companyIdsLoaded) return
+        try {
+            val text = context.resources.openRawResource(
+                context.resources.getIdentifier("ble_company_ids", "raw", context.packageName)
+            ).bufferedReader().use { it.readText() }
+            val array = JSONArray(text)
+            for (i in 0 until array.length()) {
+                val entry = array.getJSONObject(i)
+                companyIdsMap[entry.getInt("code")] = entry.getString("name")
+            }
+            companyIdsLoaded = true
+        } catch (e: Exception) {
+            // Fallback: the hardcoded entries below still work
+            companyIdsLoaded = true
+        }
+    }
 
     // ============ SERVICES ============
     private val services = mapOf(
@@ -77,12 +105,16 @@ object BleUuidResolver {
         "FE48" to "Garmin",
         "FEA1" to "Polar",
         "FEA8" to "Whoop",
+        "FEA3" to "Withings",
+        "FEF8" to "Oura",
         // Phones/Tech
         "FE60" to "Huawei",
-        "FE61" to "Xiaomi",
+        "FE61" to "Amazon Sidewalk",
         "FE68" to "Espressif",
         "FE95" to "Xiaomi MiBeacon",
         "FE96" to "Xiaomi Flora",
+        "FE89" to "Nokia",
+        "FE6E" to "Microsoft",
         // Smart Home
         "FE0F" to "Philips Hue",
         "FE13" to "Philips Lighting",
@@ -229,13 +261,22 @@ object BleUuidResolver {
         "290D" to "Environmental Sensing Trigger Setting"
     )
 
-    // ============ COMPANY IDs ============
-    private val companyIds = mapOf(
-        0x004C to "Apple, Inc.",
-        0x000F to "Broadcom Corporation",
+    // ============ COMPANY IDs (fallback) ============
+    // These entries are used if the JSON resource fails to load.
+    // The full 4,000+ entry list is loaded from res/raw/ble_company_ids.json
+    // via initCompanyIds(). Source: https://github.com/NordicSemiconductor/bluetooth-numbers-database
+    private val companyIdsFallback = mapOf(
+        0x0000 to "Ericsson AB",
         0x0002 to "Intel Corp.",
-        0x000A to "Qualcomm",
+        0x0006 to "Microsoft",
         0x000D to "Texas Instruments",
+        0x000F to "Broadcom Corporation",
+        0x0013 to "Atmel Corporation",
+        0x0025 to "NXP Semiconductors",
+        0x0030 to "ST Microelectronics",
+        0x003C to "BlackBerry (RIM)",
+        0x0046 to "MediaTek",
+        0x004C to "Apple, Inc.",
         0x0059 to "Nordic Semiconductor",
         0x0075 to "Samsung Electronics",
         0x00E0 to "Google",
@@ -288,7 +329,42 @@ object BleUuidResolver {
         "FEF6" to WardrivingContext("💡", "Govee", ThreatLevel.LOW, "Govee smart lighting or environmental sensor."),
         "FECC" to WardrivingContext("📹", "Wyze", ThreatLevel.MEDIUM, "Wyze smart home device — often cameras or sensors."),
         "FECB" to WardrivingContext("🔔", "Ring", ThreatLevel.MEDIUM, "Ring doorbell or security device."),
-        "FED0" to WardrivingContext("🔊", "Sonos", ThreatLevel.LOW, "Sonos audio equipment.")
+        "FED0" to WardrivingContext("🔊", "Sonos", ThreatLevel.LOW, "Sonos audio equipment."),
+        "FEF8" to WardrivingContext("💍", "Oura Ring", ThreatLevel.LOW, "Oura health-tracking smart ring — biometric data device."),
+        "FEA3" to WardrivingContext("❤️", "Withings", ThreatLevel.LOW, "Withings health device — often a smart scale or blood pressure monitor."),
+        "FEA1" to WardrivingContext("🏃", "Polar", ThreatLevel.LOW, "Polar fitness sensor — heart rate or activity tracker."),
+        "FEA8" to WardrivingContext("💪", "Whoop", ThreatLevel.LOW, "Whoop fitness band — continuous biometric monitoring."),
+        "FE2C" to WardrivingContext("🖥️", "Microsoft", ThreatLevel.MEDIUM, "Microsoft BLE device — could be a Surface, Xbox, or Windows peripheral."),
+        "FEF1" to WardrivingContext("🚗", "Tesla", ThreatLevel.MEDIUM, "Tesla vehicle — phone key or BLE key fob active."),
+        "FEF4" to WardrivingContext("🚗", "BMW", ThreatLevel.MEDIUM, "BMW vehicle — digital key or infotainment BLE active."),
+        "FEF2" to WardrivingContext("🚗", "Volkswagen", ThreatLevel.MEDIUM, "VW vehicle — connected car BLE service."),
+        "FEF5" to WardrivingContext("🚗", "Mercedes", ThreatLevel.MEDIUM, "Mercedes-Benz vehicle — digital key BLE active."),
+        "FECE" to WardrivingContext("📹", "Arlo", ThreatLevel.MEDIUM, "Arlo security camera or doorbell."),
+        "FED2" to WardrivingContext("🔌", "TP-Link Kasa", ThreatLevel.LOW, "TP-Link Kasa smart home device — often smart plugs or bulbs."),
+        "FED4" to WardrivingContext("🪑", "IKEA TRÅDFRI", ThreatLevel.LOW, "IKEA smart home device — typically smart lighting."),
+        "FED5" to WardrivingContext("🤖", "SwitchBot", ThreatLevel.LOW, "SwitchBot IoT device — smart button or sensor."),
+        "FED6" to WardrivingContext("🌡️", "Ecobee", ThreatLevel.LOW, "Ecobee smart thermostat."),
+        "FED7" to WardrivingContext("🏠", "Nest", ThreatLevel.MEDIUM, "Google Nest device — thermostat, camera, or doorbell."),
+        "FED8" to WardrivingContext("🔒", "August Lock", ThreatLevel.MEDIUM, "August smart lock — physical access control."),
+        "FED9" to WardrivingContext("🔒", "Yale", ThreatLevel.MEDIUM, "Yale smart lock — physical access control."),
+        "FEDB" to WardrivingContext("🔒", "Schlage", ThreatLevel.MEDIUM, "Schlage smart lock — physical access control."),
+        "FEDC" to WardrivingContext("🚪", "MyQ (Chamberlain)", ThreatLevel.LOW, "Chamberlain/LiftMaster smart garage door opener."),
+        "FEF7" to WardrivingContext("🔒", "Nuki", ThreatLevel.MEDIUM, "Nuki smart lock — physical access control."),
+        "FEF6" to WardrivingContext("💡", "Govee", ThreatLevel.LOW, "Govee smart lighting or environmental sensor."),
+        "FE63" to WardrivingContext("📷", "GoPro", ThreatLevel.LOW, "GoPro action camera with BLE active."),
+        "FE72" to WardrivingContext("🚁", "DJI", ThreatLevel.MEDIUM, "DJI drone — could be used for aerial surveillance."),
+        "FE70" to WardrivingContext("🎮", "Nintendo", ThreatLevel.LOW, "Nintendo game console or controller."),
+        "FE73" to WardrivingContext("🔋", "Anker", ThreatLevel.LOW, "Anker device — often a portable battery or speaker."),
+        "FE74" to WardrivingContext("📡", "Belkin", ThreatLevel.LOW, "Belkin IoT device — often a smart plug or WeMo product."),
+        "FE75" to WardrivingContext("📺", "Roku", ThreatLevel.LOW, "Roku streaming device."),
+        "FE76" to WardrivingContext("📺", "Chromecast", ThreatLevel.LOW, "Google Chromecast streaming device."),
+        "FE77" to WardrivingContext("📹", "Dropcam", ThreatLevel.MEDIUM, "Google Nest Cam (formerly Dropcam) — indoor surveillance."),
+        "FE78" to WardrivingContext("📹", "Nest Cam", ThreatLevel.MEDIUM, "Google Nest Cam — surveillance device."),
+        "FE62" to WardrivingContext("🔐", "Ledger", ThreatLevel.LOW, "Ledger hardware crypto wallet."),
+        "FE71" to WardrivingContext("🖱️", "Logitech", ThreatLevel.LOW, "Logitech wireless peripheral — mouse, keyboard, or presenter."),
+        "FE6A" to WardrivingContext("🖨️", "Canon", ThreatLevel.LOW, "Canon printer or camera with BLE active."),
+        "FE6D" to WardrivingContext("📺", "Panasonic", ThreatLevel.LOW, "Panasonic device — TV, appliance, or AV equipment."),
+        "FEF3" to WardrivingContext("📱", "Google Fast Pair", ThreatLevel.MEDIUM, "Google Fast Pair — nearby device is pairing with a phone.")
     )
 
     private val charContext = mapOf(
@@ -317,7 +393,7 @@ object BleUuidResolver {
     }
 
     fun companyName(id: Int): String {
-        return companyIds[id] ?: "Unknown (0x${id.toString(16).padStart(4, '0')})"
+        return companyIdsMap[id] ?: companyIdsFallback[id] ?: "Unknown (0x${id.toString(16).padStart(4, '0')})"
     }
 
     fun serviceContext(uuid: UUID): WardrivingContext? {
