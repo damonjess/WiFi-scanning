@@ -141,6 +141,7 @@ class BleTrackerDetector {
             val beaconType = sessions.mapNotNull { it.beaconType }.firstOrNull()
             val manufacturer = sessions.mapNotNull { it.manufacturerFromAdv }.firstOrNull()
             val serviceUuids = sessions.flatMap { it.serviceUuids }.distinct()
+            val iBeaconUuid = sessions.mapNotNull { it.iBeaconUuid }.firstOrNull()
 
             val reasons = mutableListOf<String>()
 

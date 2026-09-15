@@ -164,7 +164,7 @@ class SecurityAssessmentHelper {
 
         for (path in adminPaths) {
             val url = "$protocol://$ip:$port$path"
-            val result = withTimeoutOrNull(3000L) {
+            val foundMatch = withTimeoutOrNull(3000L) {
                 try {
                     val conn = URL(url).openConnection() as HttpURLConnection
                     conn.connectTimeout = 2000
@@ -191,7 +191,7 @@ class SecurityAssessmentHelper {
                                 description = "Admin panel requires authentication. Realm: '$realm'. Check for default credentials.",
                                 recommendation = "Try common defaults: admin/admin, admin/password, root/root"
                             ))
-                            break // Found the login page, no need to check more paths
+                            return@withTimeoutOrNull true
                         }
 
                         // Identify device type from title
@@ -205,7 +205,7 @@ class SecurityAssessmentHelper {
                                 description = "Web interface title: '$title'. Device type: $deviceType. Check for default credentials.",
                                 recommendation = "Change default password. Check for known CVEs for this device type."
                             ))
-                            break
+                            return@withTimeoutOrNull true
                         }
 
                         // Check for login form
@@ -218,7 +218,7 @@ class SecurityAssessmentHelper {
                                 description = "Device has a web login page at $url. Title: '${title ?: "untitled"}'",
                                 recommendation = "Check for default credentials. Change default password."
                             ))
-                            break
+                            return@withTimeoutOrNull true
                         }
                     } else if (responseCode == 401) {
                         val realm = conn.getHeaderField("WWW-Authenticate") ?: "Protected"
@@ -230,7 +230,8 @@ class SecurityAssessmentHelper {
                             description = "Admin panel at $url requires authentication. $realm",
                             recommendation = "Check for default credentials: admin/admin, admin/password"
                         ))
-                        break
+                        conn.disconnect()
+                        return@withTimeoutOrNull true
                     }
                     conn.disconnect()
                 } catch (_: javax.net.ssl.SSLException) {
@@ -243,10 +244,15 @@ class SecurityAssessmentHelper {
                         description = "HTTPS endpoint has an invalid or self-signed certificate at $url",
                         recommendation = "Verify this is expected. Self-signed certs are common on IoT devices."
                     ))
-                    break
+                    return@withTimeoutOrNull true
                 } catch (_: Exception) {
                     // Connection failed, try next path
                 }
+                false
+            } ?: false
+
+            if (foundMatch) {
+                break
             }
         }
 
@@ -254,7 +260,7 @@ class SecurityAssessmentHelper {
     }
 
     private fun extractTitle(html: String): String? {
-        val pattern = Regex("<title[^>]*>(.*?)</title>", RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE)
+        val pattern = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         return pattern.find(html)?.groupValues?.get(1)?.trim()?.take(100)
     }
 
