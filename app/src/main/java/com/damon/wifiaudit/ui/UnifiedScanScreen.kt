@@ -37,8 +37,6 @@ import com.damon.wifiaudit.ui.theme.*
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import kotlinx.coroutines.delay
 
-enum class ScanTab { WIFI, BLE, LAN }
-
 @Composable
 fun UnifiedScanScreen(
     viewModel: WardrivingStatusViewModel = viewModel(),
@@ -53,7 +51,7 @@ fun UnifiedScanScreen(
 
     var startTime by remember { mutableStateOf(0L) }
     var elapsedSeconds by remember { mutableStateOf(0L) }
-    var currentTab by remember { mutableStateOf(ScanTab.WIFI) }
+    var showBleOnly by remember { mutableStateOf(false) }
 
     LaunchedEffect(serviceRunning) {
         if (serviceRunning && startTime == 0L) {
@@ -108,41 +106,32 @@ fun UnifiedScanScreen(
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterChipStyled("Nearby WiFi", currentTab == ScanTab.WIFI) { currentTab = ScanTab.WIFI }
-            FilterChipStyled("BLE Radar", currentTab == ScanTab.BLE) { currentTab = ScanTab.BLE }
-            FilterChipStyled("LAN Discovery", currentTab == ScanTab.LAN) { currentTab = ScanTab.LAN }
+            FilterChipStyled("Nearby WiFi", !showBleOnly) { showBleOnly = false }
+            FilterChipStyled("BLE Radar", showBleOnly) { showBleOnly = true }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // LIST / CONTENT
-        when (currentTab) {
-            ScanTab.WIFI -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    item { GpsCard(snapshot) }
-                    items(snapshot.wifiResults, key = { it.BSSID }) { result ->
-                        WifiScanRow(result = result, onClick = { onWifiClick(result.BSSID) })
-                    }
+        // LIST
+        if (showBleOnly) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(bleDevices, key = { it.macAddress }) { device ->
+                    BleDeviceRow(device = device, onClick = { onBleClick(device.macAddress) })
                 }
             }
-            ScanTab.BLE -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(bleDevices, key = { it.macAddress }) { device ->
-                        BleDeviceRow(device = device, onClick = { onBleClick(device.macAddress) })
-                    }
-                }
-            }
-            ScanTab.LAN -> {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    NetworkScannerScreen()
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item { GpsCard(snapshot) }
+                items(snapshot.wifiResults, key = { it.BSSID }) { result ->
+                    WifiScanRow(result = result, onClick = { onWifiClick(result.BSSID) })
                 }
             }
         }
