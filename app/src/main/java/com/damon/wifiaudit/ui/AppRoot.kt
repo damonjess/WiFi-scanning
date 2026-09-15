@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Security
@@ -102,27 +103,34 @@ fun AppRoot() {
                 NavigationBarItem(
                     selected = selectedIndex == 1,
                     onClick = { selectedIndex = 1 },
-                    icon = { Icon(Icons.Default.History, contentDescription = "History") },
-                    label = { Text("History") },
+                    icon = { Icon(Icons.Default.Lan, contentDescription = "LAN") },
+                    label = { Text("LAN") },
                     colors = navColors()
                 )
                 NavigationBarItem(
                     selected = selectedIndex == 2,
                     onClick = { selectedIndex = 2 },
-                    icon = { Icon(Icons.Default.Map, contentDescription = "Map") },
-                    label = { Text("Map") },
+                    icon = { Icon(Icons.Default.History, contentDescription = "History") },
+                    label = { Text("History") },
                     colors = navColors()
                 )
                 NavigationBarItem(
                     selected = selectedIndex == 3,
                     onClick = { selectedIndex = 3 },
-                    icon = { Icon(Icons.Default.Security, contentDescription = "Rules") },
-                    label = { Text("Rules") },
+                    icon = { Icon(Icons.Default.Map, contentDescription = "Map") },
+                    label = { Text("Map") },
                     colors = navColors()
                 )
                 NavigationBarItem(
                     selected = selectedIndex == 4,
                     onClick = { selectedIndex = 4 },
+                    icon = { Icon(Icons.Default.Security, contentDescription = "Rules") },
+                    label = { Text("Rules") },
+                    colors = navColors()
+                )
+                NavigationBarItem(
+                    selected = selectedIndex == 5,
+                    onClick = { selectedIndex = 5 },
                     icon = { Icon(Icons.Default.Radar, contentDescription = "Targets") },
                     label = { Text("Targets") },
                     colors = navColors()
@@ -137,7 +145,8 @@ fun AppRoot() {
                     onWifiClick = { bssid -> detailTarget = bssid to "WIFI" },
                     onBleClick = { mac -> detailTarget = mac to "BLE" }
                 )
-                1 -> HistoryScreen(
+                1 -> NetworkScannerScreen()
+                2 -> HistoryScreen(
                     onViewScanLocation = { target ->
                         mapTarget = null
                         scanLocationTarget = target
@@ -146,15 +155,15 @@ fun AppRoot() {
                         detailTarget = macAddress to type
                     }
                 )
-                2 -> {
+                3 -> {
                     MapTabScreen(
                         onNavigateToDevice = { mac, type ->
                             detailTarget = mac to type
                         }
                     )
                 }
-                3 -> RulesScreen()
-                4 -> TargetedDevicesScreen(
+                4 -> RulesScreen()
+                5 -> TargetedDevicesScreen(
                     onOpenDeviceDetails = { mac, type ->
                         detailTarget = mac to type
                     }
