@@ -239,9 +239,15 @@ class DiscoveryCoordinator(private val context: Context) {
                     }
                 }
 
-                // Run active TCP/ICMP scan
+                // Brief discovery window (1.2s) to gather mDNS/SSDP/NBNS hints before TCP probes
+                delay(1200)
+
+                val hostPortsMap = buildHostPortsMap()
+
+                // Run active TCP/ICMP scan with adaptive port list based on discovery hints
                 tcpScanJob = scanner.scan(
                     timeoutMs = 400,
+                    hostPortsMap = hostPortsMap,
                     onResult = { addOrMerge(it, arpCache = arpCache) },
                     onProgress = { cur, tot -> _progress.value = cur to tot },
                     onFinished = { }
@@ -375,6 +381,35 @@ class DiscoveryCoordinator(private val context: Context) {
         if (added) {
             _devices.value = deviceMap.values.sortedBy { it.ip }
         }
+    }
+
+    private fun buildHostPortsMap(): Map<String, IntArray> {
+        val map = mutableMapOf<String, IntArray>()
+        deviceMap.forEach { (ip, dev) ->
+            val source = dev.source.lowercase()
+            val hostname = (dev.hostname ?: "").lowercase()
+            val ports = mutableSetOf<Int>()
+
+            when {
+                source.contains("rtsp") || hostname.contains("rtsp") || hostname.contains("axis-video") || source.contains("onvif") -> {
+                    ports.addAll(listOf(554, 8554, 80, 443, 8000, 8080))
+                }
+                source.contains("printer") || hostname.contains("printer") || hostname.contains("ipp") || source.contains("airprint") -> {
+                    ports.addAll(listOf(631, 9100, 80, 443))
+                }
+                source.contains("smb") || source.contains("nbns") || hostname.contains("workstation") -> {
+                    ports.addAll(listOf(445, 139, 22, 135))
+                }
+                source.contains("ssh") || hostname.contains("ssh") -> {
+                    ports.add(22)
+                }
+                else -> {
+                    ports.addAll(scanner.fallbackPorts.toList())
+                }
+            }
+            map[ip] = ports.toIntArray()
+        }
+        return map
     }
 
     private fun guessVendorFromHostname(hostname: String?): String? {

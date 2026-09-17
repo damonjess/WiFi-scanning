@@ -164,8 +164,9 @@ class BleScanManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     suspend fun profileDevice(macAddress: String): BleGattProfiler.GattProfile? {
         val device = bluetoothAdapter?.getRemoteDevice(macAddress) ?: return null
+        val knownName = _devices.value[macAddress]?.deviceName
         val profiler = BleGattProfiler(context)
-        return profiler.profileDevice(device)
+        return profiler.profileDevice(device, knownName)
     }
 
     /**

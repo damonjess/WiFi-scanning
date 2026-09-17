@@ -6,7 +6,6 @@ import android.util.Log
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import kotlinx.coroutines.*
-import java.io.BufferedReader
 import java.io.FileReader
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -22,7 +21,10 @@ class RobustLanScanner(private val context: Context) {
     private val tag = "RobustLanScanner"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // Ports commonly used by CCTV / IP cameras and vulnerable services
+    // Fallback top 10 ports for unhinted hosts
+    val fallbackPorts = intArrayOf(80, 443, 22, 445, 554, 8080, 8443, 23, 21, 1900)
+
+    // Full set of ports commonly used by CCTV / IP cameras and vulnerable services
     private val probePorts = intArrayOf(
         80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
         443, 554, 8554, 8000, 8001, 8080, 8443, 8899, 37777, 34567,
@@ -43,6 +45,7 @@ class RobustLanScanner(private val context: Context) {
 
     fun scan(
         timeoutMs: Int = 400,
+        hostPortsMap: Map<String, IntArray>? = null,
         onResult: suspend (Device) -> Unit,
         onProgress: suspend (scanned: Int, total: Int) -> Unit,
         onFinished: suspend () -> Unit
@@ -61,19 +64,14 @@ class RobustLanScanner(private val context: Context) {
 
         Log.i(tag, "Scanning $total hosts with timeout ${timeoutMs}ms…")
 
-        // Use a single global semaphore to bound total concurrent sockets.
-        // Android typically has a ~1024 file descriptor limit; each TCP socket
-        // consumes one. With 128 permits and 400ms timeout, we stay well within
-        // limits while still achieving good parallelism.
         val socketSemaphore = Semaphore(128)
-        // Bound the number of hosts being probed simultaneously to avoid
-        // excessive coroutine creation (254–762 hosts × 42 port probes each).
         val hostSemaphore = Semaphore(32)
 
         targets.map { ip ->
             launch {
                 hostSemaphore.withPermit {
-                    val dev = probeHost(ip, timeoutMs, socketSemaphore)
+                    val customPorts = hostPortsMap?.get(ip)
+                    val dev = probeHost(ip, timeoutMs, socketSemaphore, customPorts)
                     if (dev != null && foundIps.add(ip)) {
                         onResult(dev)
                     }
@@ -89,51 +87,68 @@ class RobustLanScanner(private val context: Context) {
     }
 
     /**
-     * Probes a single host: scans the full [probePorts] set in parallel (bounded
-     * by the global [socketSemaphore]) and considers the host alive if ANY port
-     * is open, it appears in the ARP cache, or [InetAddress.isReachable] succeeds.
-     *
-     * This replaces the previous two-phase approach (alive-check then full scan)
-     * which doubled the work and missed hosts whose only open ports weren't in
-     * the small alive-check set.
+     * Probes a single host using an adaptive or default port list.
+     * Fingerprinting (HTTP/RTSP/FTP) is parallelized as soon as the respective port is found open.
+     * ICMP is performed before targeted ARP lookup for hosts with zero open ports.
      */
-    private suspend fun probeHost(ip: String, timeoutMs: Int, socketSemaphore: Semaphore): Device? = coroutineScope {
+    private suspend fun probeHost(
+        ip: String,
+        timeoutMs: Int,
+        socketSemaphore: Semaphore,
+        customPorts: IntArray? = null
+    ): Device? = coroutineScope {
         val openPorts = mutableListOf<Int>()
+        var httpVendorJob: Deferred<String?>? = null
+        var rtspVendorJob: Deferred<String?>? = null
+        var ftpVendorJob: Deferred<String?>? = null
 
-        val portJobs = probePorts.map { port ->
+        val portsToProbe = customPorts ?: fallbackPorts
+
+        val portJobs = portsToProbe.map { port ->
             async(Dispatchers.IO) {
                 socketSemaphore.withPermit {
                     if (tcpConnect(ip, port, timeoutMs)) {
                         synchronized(openPorts) { openPorts.add(port) }
+                        synchronized(openPorts) {
+                            if ((port == 80 || port == 8080) && httpVendorJob == null) {
+                                httpVendorJob = async(Dispatchers.IO) { httpFingerprint(ip, port) }
+                            } else if (port == 554 && rtspVendorJob == null) {
+                                rtspVendorJob = async(Dispatchers.IO) { rtspFingerprint(ip, 554) }
+                            } else if (port == 21 && ftpVendorJob == null) {
+                                ftpVendorJob = async(Dispatchers.IO) { ftpFingerprint(ip, 21) }
+                            }
+                        }
                     }
                 }
             }
         }
         portJobs.awaitAll()
 
-        val mac = ArpCacheReader.resolveMacWithProbe(ip)
-        val isReachable = if (openPorts.isEmpty() && mac == null) {
-            try {
+        var mac = ArpCacheReader.readArpTable()[ip]
+        var isReachable = false
+
+        if (openPorts.isEmpty() && mac == null) {
+            // Do ICMP first (cheaper), then ARP-probe only if ICMP fails
+            isReachable = try {
                 InetAddress.getByName(ip).isReachable(timeoutMs.coerceAtLeast(500))
             } catch (_: Exception) {
                 false
             }
-        } else false
+            if (!isReachable) {
+                mac = ArpCacheReader.resolveMacWithProbe(ip)
+            }
+        } else if (openPorts.isNotEmpty() && mac == null) {
+            mac = ArpCacheReader.resolveMacWithProbe(ip)
+        }
 
         val isAlive = openPorts.isNotEmpty() || mac != null || isReachable
         if (!isAlive) return@coroutineScope null
 
         val hostname = resolveHostname(ip)
 
-        val httpPort = when {
-            80 in openPorts -> 80
-            8080 in openPorts -> 8080
-            else -> null
-        }
-
-        val httpVendor = httpPort?.let { httpFingerprint(ip, it) }
-        val rtspVendor = if (554 in openPorts) rtspFingerprint(ip, 554) else null
-        val ftpVendor = if (21 in openPorts) ftpFingerprint(ip, 21) else null
+        val httpVendor = httpVendorJob?.await()
+        val rtspVendor = rtspVendorJob?.await()
+        val ftpVendor = ftpVendorJob?.await()
 
         val vendor = mac?.let { OuiVendorLookup.lookup(it) }
             ?: httpVendor
@@ -412,10 +427,24 @@ class RobustLanScanner(private val context: Context) {
                 val linkProps = cm.getLinkProperties(network)
                 val ipv4 = linkProps?.linkAddresses?.firstOrNull { it.address is Inet4Address }
                 if (ipv4 != null) {
-                    val ip = ipv4.address.hostAddress ?: ""
-                    if (ip.isNotEmpty()) {
-                        val base = ip.substring(0, ip.lastIndexOf('.'))
-                        return (1..254).map { "$base.$it" }
+                    val ipStr = ipv4.address.hostAddress ?: ""
+                    if (ipStr.isNotEmpty()) {
+                        val originalPrefix = ipv4.prefixLength
+                        // Cap at /24 to prevent 65k-host scans
+                        val prefix = if (originalPrefix < 24) 24 else originalPrefix
+                        
+                        val ipInt = ipToInt(ipv4.address as Inet4Address)
+                        val mask = if (prefix == 32) -1 else (0xFFFFFFFF.toInt() shl (32 - prefix))
+                        val networkAddr = ipInt and mask
+                        val broadcastAddr = networkAddr or mask.inv()
+                        
+                        val targets = mutableListOf<String>()
+                        for (addr in (networkAddr + 1) until broadcastAddr) {
+                            if (addr != ipInt) {
+                                targets.add(intToIp(addr))
+                            }
+                        }
+                        return targets
                     }
                 }
             } catch (e: Exception) {

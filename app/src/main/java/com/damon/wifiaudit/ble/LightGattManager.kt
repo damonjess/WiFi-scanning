@@ -48,9 +48,12 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
     private val _state = MutableStateFlow<State>(State.Disconnected)
     val state: StateFlow<State> = _state
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private var gatt: BluetoothGatt? = null
     private val operationQueue = ConcurrentLinkedQueue<GattOperation>()
     private var pendingOperation: GattOperation? = null
+    private var timeoutJob: Job? = null
 
     private sealed class GattOperation {
         data class Read(val charUuid: UUID, val serviceUuid: UUID) : GattOperation()
@@ -110,13 +113,40 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
                 }
                 _state.value = State.Ready(svcs)
 
-                // Auto-read standard readable characteristics upon discovery
-                val autoReadUuids = setOf("2A00", "2A01", "2A19", "2A24", "2A25", "2A26", "2A27", "2A28", "2A29", "2A23", "2A07", "2A1C", "2A6E", "2A6F", "2A76", "2A04", "2A0F")
+                val autoReadUuids = mutableSetOf(
+                    "2A01", "2A19", "2A24", "2A25", "2A26", "2A27", "2A28", "2A29", "2A2A",
+                    "2A23", "2A07", "2A1C", "2A6E", "2A6F", "2A76", "2A04", "2A0F"
+                )
+                if (g.device.name.isNullOrBlank()) {
+                    autoReadUuids.add("2A00")
+                }
+
                 svcs.forEach { svc ->
+                    val serviceShort = BleUuidResolver.shortUuid(svc.uuid)
                     svc.characteristics.forEach { c ->
                         val short = BleUuidResolver.shortUuid(c.uuid)
-                        if (short in autoReadUuids && (c.properties and 0x02 != 0)) {
-                            readCharacteristic(svc.uuid, c.uuid)
+                        val isReadable = (c.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0)
+
+                        when {
+                            serviceShort == "180D" && short == "2A37" -> {
+                                // Heart Rate: enable notification for 5s
+                                setNotify(svc.uuid, c.uuid, true)
+                                scope.launch {
+                                    delay(5000)
+                                    setNotify(svc.uuid, c.uuid, false)
+                                }
+                            }
+                            serviceShort == "1812" && short == "2A4B" && isReadable -> {
+                                // HID Report Map
+                                readCharacteristic(svc.uuid, c.uuid)
+                            }
+                            serviceShort == "1808" && short == "2A18" && isReadable -> {
+                                // Glucose
+                                readCharacteristic(svc.uuid, c.uuid)
+                            }
+                            short in autoReadUuids && isReadable -> {
+                                readCharacteristic(svc.uuid, c.uuid)
+                            }
                         }
                     }
                 }
@@ -191,32 +221,55 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
         if (pendingOperation != null) return
         val op = operationQueue.poll() ?: return
         pendingOperation = op
-        val g = gatt ?: run { pendingOperation = null; return }
+        
+        timeoutJob = scope.launch {
+            delay(3000)
+            if (pendingOperation == op) {
+                val g = gatt ?: return@launch
+                val charUuid = when (op) {
+                    is GattOperation.Read -> op.charUuid
+                    is GattOperation.Write -> op.charUuid
+                    is GattOperation.EnableNotify -> op.charUuid
+                }
+                val svcUuid = when (op) {
+                    is GattOperation.Read -> op.serviceUuid
+                    is GattOperation.Write -> op.serviceUuid
+                    is GattOperation.EnableNotify -> op.serviceUuid
+                }
+                val char = findChar(g, svcUuid, charUuid)
+                if (char != null) {
+                    markError(char, "Operation timeout")
+                }
+                completeOperation()
+            }
+        }
+
+        val g = gatt ?: run { completeOperation(); return }
 
         when (op) {
             is GattOperation.Read -> {
                 val char = findChar(g, op.serviceUuid, op.charUuid) ?: run {
-                    pendingOperation = null; return
+                    completeOperation(); return
                 }
                 if (!g.readCharacteristic(char)) {
                     markError(char, "Read not permitted")
-                    pendingOperation = null
+                    completeOperation()
                 }
             }
             is GattOperation.Write -> {
                 val char = findChar(g, op.serviceUuid, op.charUuid) ?: run {
-                    pendingOperation = null; return
+                    completeOperation(); return
                 }
                 char.writeType = op.type
                 char.value = op.data
                 if (!g.writeCharacteristic(char)) {
                     markError(char, "Write not permitted")
-                    pendingOperation = null
+                    completeOperation()
                 }
             }
             is GattOperation.EnableNotify -> {
                 val char = findChar(g, op.serviceUuid, op.charUuid) ?: run {
-                    pendingOperation = null; return
+                    completeOperation(); return
                 }
                 g.setCharacteristicNotification(char, op.enable)
                 val descriptor = char.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
@@ -232,13 +285,14 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
                     g.writeDescriptor(descriptor)
                 } else {
                     updateNotifyState(char, op.enable)
-                    pendingOperation = null
+                    completeOperation()
                 }
             }
         }
     }
 
     private fun completeOperation() {
+        timeoutJob?.cancel()
         pendingOperation = null
         doNextOperation()
     }
@@ -299,6 +353,7 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
     @SuppressLint("MissingPermission")
     fun disconnect() {
         operationQueue.clear()
+        timeoutJob?.cancel()
         pendingOperation = null
         gatt?.disconnect()
     }
@@ -308,5 +363,6 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
         disconnect()
         gatt?.close()
         gatt = null
+        scope.cancel()
     }
 }
