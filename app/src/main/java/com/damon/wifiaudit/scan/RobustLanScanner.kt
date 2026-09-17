@@ -111,10 +111,10 @@ class RobustLanScanner(private val context: Context) {
         }
         portJobs.awaitAll()
 
-        val mac = readArp(ip)
+        val mac = ArpCacheReader.resolveMacWithProbe(ip)
         val isReachable = if (openPorts.isEmpty() && mac == null) {
             try {
-                InetAddress.getByName(ip).isReachable(timeoutMs)
+                InetAddress.getByName(ip).isReachable(timeoutMs.coerceAtLeast(500))
             } catch (_: Exception) {
                 false
             }
@@ -300,15 +300,97 @@ class RobustLanScanner(private val context: Context) {
     private fun guessVendorFromMac(mac: String): String? {
         val clean = mac.replace(":", "").replace("-", "").uppercase()
         return when {
+            // D-Link
             clean.startsWith("6C198F") || clean.startsWith("000F3D") ||
-            clean.startsWith("C0A0BB") || clean.startsWith("F07D68") -> "D-Link"
-            clean.startsWith("000C41") -> "Cisco-Linksys"
-            clean.startsWith("00E0FC") || clean.startsWith("00C0CA") -> "Hikvision"
-            clean.startsWith("BC1485") || clean.startsWith("BC7ABF") -> "Samsung"
-            clean.startsWith("00000C") -> "Cisco"
-            clean.startsWith("B0C4E7") -> "Samsung"
+            clean.startsWith("C0A0BB") || clean.startsWith("F07D68") ||
+            clean.startsWith("001195") || clean.startsWith("B8A386") -> "D-Link"
+            // Cisco / Linksys
+            clean.startsWith("000C41") || clean.startsWith("0016B6") ||
+            clean.startsWith("001C10") || clean.startsWith("001839") -> "Cisco-Linksys"
+            clean.startsWith("00000C") || clean.startsWith("001517") ||
+            clean.startsWith("0017C5") || clean.startsWith("002213") -> "Cisco"
+            // Hikvision
+            clean.startsWith("00E0FC") || clean.startsWith("00C0CA") ||
+            clean.startsWith("4447CC") || clean.startsWith("C05627") ||
+            clean.startsWith("2857BE") || clean.startsWith("3CE9F7") -> "Hikvision"
+            // Dahua
+            clean.startsWith("FC4D96") || clean.startsWith("E0508B") ||
+            clean.startsWith("A0BD1D") || clean.startsWith("5C04A0") ||
+            clean.startsWith("38AF46") || clean.startsWith("4C11BF") -> "Dahua"
+            // Samsung
+            clean.startsWith("BC1485") || clean.startsWith("BC7ABF") ||
+            clean.startsWith("B0C4E7") || clean.startsWith("500BC6") ||
+            clean.startsWith("8C7712") || clean.startsWith("883660") ||
+            clean.startsWith("784040") || clean.startsWith("A02195") -> "Samsung"
+            // Apple
+            clean.startsWith("AC87A3") || clean.startsWith("1C1A68") ||
+            clean.startsWith("2CBE08") || clean.startsWith("38C986") ||
+            clean.startsWith("4C7C5F") || clean.startsWith("5C97F3") ||
+            clean.startsWith("A4D18C") || clean.startsWith("F81ED3") -> "Apple"
+            // Google / Nest
+            clean.startsWith("18B430") || clean.startsWith("3C5AB4") ||
+            clean.startsWith("64167F") || clean.startsWith("7C2CE4") -> "Google"
+            // Xiaomi
+            clean.startsWith("009EC1") || clean.startsWith("286C07") ||
+            clean.startsWith("7C1DD9") || clean.startsWith("FC7C02") -> "Xiaomi"
+            // TP-Link
+            clean.startsWith("50C7BF") || clean.startsWith("C0C9E3") ||
+            clean.startsWith("14CC20") || clean.startsWith("60E327") ||
+            clean.startsWith("A0F3C1") || clean.startsWith("98DAC4") -> "TP-Link"
+            // Netgear
+            clean.startsWith("28C68E") || clean.startsWith("001E2A") ||
+            clean.startsWith("94163E") || clean.startsWith("841B5E") -> "Netgear"
+            // ASUS
+            clean.startsWith("04D4C4") || clean.startsWith("2C4D54") ||
+            clean.startsWith("FC3497") || clean.startsWith("F832E4") -> "ASUS"
+            // Synology / QNAP
             clean.startsWith("001132") -> "Synology"
             clean.startsWith("001D63") -> "QNAP"
+            // Raspberry Pi
+            clean.startsWith("B827EB") || clean.startsWith("E45F01") ||
+            clean.startsWith("DCA632") -> "Raspberry Pi"
+            // Amazon
+            clean.startsWith("B0C554") || clean.startsWith("747548") ||
+            clean.startsWith("F0D2F1") || clean.startsWith("68A40E") -> "Amazon"
+            // Espressif (ESP32/ESP8266)
+            clean.startsWith("240AC4") || clean.startsWith("30AEA4") ||
+            clean.startsWith("84F3EB") || clean.startsWith("A4CF12") ||
+            clean.startsWith("7C9EBD") || clean.startsWith("CC50E3") -> "Espressif"
+            // Tuya
+            clean.startsWith("84CCAD") || clean.startsWith("D4A651") ||
+            clean.startsWith("CC8CBF") || clean.startsWith("C44EAC") -> "Tuya"
+            // Reolink
+            clean.startsWith("EC71DB") || clean.startsWith("9C8E99") -> "Reolink"
+            // Ubiquiti
+            clean.startsWith("24A43C") || clean.startsWith("FCEC38") ||
+            clean.startsWith("802AA8") || clean.startsWith("B4FBE4") -> "Ubiquiti"
+            // Roku
+            clean.startsWith("D8DCE9") || clean.startsWith("CC6EA4") ||
+            clean.startsWith("B0A73B") || clean.startsWith("AC3A7A") -> "Roku"
+            // Sonos
+            clean.startsWith("000E58") || clean.startsWith("B8E937") ||
+            clean.startsWith("F40343") -> "Sonos"
+            // Philips Hue
+            clean.startsWith("001788") || clean.startsWith("ECB5FA") ||
+            clean.startsWith("EC1BBD") -> "Philips Hue"
+            // Foscam
+            clean.startsWith("001CFA") -> "Foscam"
+            // Wyze
+            clean.startsWith("2CFAA2") -> "Wyze"
+            // Arlo
+            clean.startsWith("DC447D") -> "Arlo"
+            // Amcrest
+            clean.startsWith("A0CC2B") || clean.startsWith("C4AD34") -> "Amcrest"
+            // Nintendo
+            clean.startsWith("0009BF") -> "Nintendo"
+            // NVIDIA
+            clean.startsWith("00044B") -> "NVIDIA"
+            // Intel
+            clean.startsWith("0007CB") -> "Intel"
+            // MikroTik
+            clean.startsWith("4C5E0C") -> "MikroTik"
+            // SpaceX Starlink
+            clean.startsWith("00A0C6") -> "SpaceX Starlink"
             else -> null
         }
     }
@@ -388,19 +470,7 @@ class RobustLanScanner(private val context: Context) {
     }
 
     private fun readArp(ip: String): String? {
-        return try {
-            BufferedReader(FileReader("/proc/net/arp")).useLines { lines ->
-                lines.map { it.split("\\s+".toRegex()) }
-                    .firstOrNull { parts ->
-                        parts.size >= 4 &&
-                        parts[0] == ip &&
-                        !parts[3].equals("00:00:00:00:00:00", ignoreCase = true) &&
-                        !parts[3].contains("incomplete", ignoreCase = true)
-                    }
-                    ?.get(3)
-                    ?.uppercase()
-            }
-        } catch (_: Exception) { null }
+        return ArpCacheReader.resolveMacWithProbe(ip)?.let { ArpCacheReader.normalizeMac(it) }
     }
 
     private fun resolveHostname(ip: String): String? {

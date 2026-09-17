@@ -44,7 +44,8 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             coordinator.devices.collect { devices ->
                 _discoveredDevices.value = devices.map { dev ->
-                    val mac = dev.mac ?: ArpCacheReader.macForIp(dev.ip)
+                    val rawMac = dev.mac ?: ArpCacheReader.macForIp(dev.ip)
+                    val mac = rawMac?.let { ArpCacheReader.normalizeMac(it) }
                     val vendorInfo = mac?.let { OuiVendorLookup.lookupInfo(it) }
                     val vendor = dev.vendor ?: vendorInfo?.name ?: (mac?.let { OuiVendorLookup.lookup(it) })
                     val name = resolveDeviceName(dev.hostname, vendor, dev.ip, dev.openPorts)

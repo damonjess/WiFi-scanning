@@ -216,7 +216,8 @@ fun DeviceCard(
                 val macDisplay = when {
                     device.mac != null -> "MAC: ${device.mac}"
                     !ArpCacheReader.isArpSupported() -> "MAC: Restricted (Android 10+)"
-                    else -> "MAC: Resolving ARP..."
+                    !ArpCacheReader.isArpUsable() -> "MAC: ARP cache empty (Android 10+)"
+                    else -> "MAC: Resolving..."
                 }
                 Text(
                     text = macDisplay,

@@ -111,7 +111,7 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
                 _state.value = State.Ready(svcs)
 
                 // Auto-read standard readable characteristics upon discovery
-                val autoReadUuids = setOf("2A00", "2A01", "2A19", "2A24", "2A25", "2A26", "2A27", "2A29")
+                val autoReadUuids = setOf("2A00", "2A01", "2A19", "2A24", "2A25", "2A26", "2A27", "2A28", "2A29", "2A23", "2A07", "2A1C", "2A6E", "2A6F", "2A76", "2A04", "2A0F")
                 svcs.forEach { svc ->
                     svc.characteristics.forEach { c ->
                         val short = BleUuidResolver.shortUuid(c.uuid)

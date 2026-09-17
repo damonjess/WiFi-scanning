@@ -78,6 +78,26 @@ class DiscoveryCoordinator(private val context: Context) {
         // on every single discovery result.
         val arpCache = ArpCacheReader.readArpTable()
 
+        // Immediately seed the device map with all hosts found in the ARP cache.
+        // This ensures devices that don't respond to TCP probes or ping but are
+        // present in the kernel ARP table are still shown to the user.
+        arpCache.forEach { (ip, mac) ->
+            val normalizedMac = ArpCacheReader.normalizeMac(mac)
+            val vendor = OuiVendorLookup.lookup(normalizedMac)
+                ?: guessVendorFromHostname(ip)
+            deviceMap[ip] = RobustLanScanner.Device(
+                ip = ip,
+                mac = normalizedMac,
+                hostname = null,
+                openPorts = emptyList(),
+                source = "arp",
+                vendor = vendor
+            )
+        }
+        if (deviceMap.isNotEmpty()) {
+            _devices.value = deviceMap.values.sortedBy { it.ip }
+        }
+
         scanJob = scope.launch {
             var ssdpJob: Job? = null
             var mdnsJob: Job? = null
@@ -236,9 +256,11 @@ class DiscoveryCoordinator(private val context: Context) {
                 p2pJob.cancelAndJoin()
 
                 // Refresh the ARP cache after TCP probes have populated it,
-                // then enrich any devices still missing MAC addresses.
+                // then enrich any devices still missing MAC addresses and add
+                // any new ARP-only devices that weren't found by other methods.
                 val refreshedArp = ArpCacheReader.readArpTable()
                 enrichMacsFromArp(refreshedArp)
+                addNewArpDevices(refreshedArp)
 
                 // Run security assessment on devices with open ports
                 runSecurityAssessment()
@@ -264,12 +286,13 @@ class DiscoveryCoordinator(private val context: Context) {
         deviceMap.forEach { (ip, dev) ->
             if (dev.mac == null) {
                 arpCache[ip]?.let { mac ->
-                    val vendor = OuiVendorLookup.lookup(mac) ?: dev.vendor
+                    val normalizedMac = ArpCacheReader.normalizeMac(mac)
+                    val vendor = OuiVendorLookup.lookup(normalizedMac) ?: dev.vendor
                     val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi(dev.hostname ?: "", vendor)
                     val vulnMatches = SurveillanceDeviceWatchdog.analyzeVulnerabilities(vendor, dev.openPorts)
                     val allMatches = (dev.securityMatches + listOfNotNull(wifiMatch) + vulnMatches).distinctBy { it.category to it.matchedOn }
                     
-                    deviceMap[ip] = dev.copy(mac = mac, vendor = vendor, securityMatches = allMatches)
+                    deviceMap[ip] = dev.copy(mac = normalizedMac, vendor = vendor, securityMatches = allMatches)
                     changed = true
 
                     val hostname = dev.hostname ?: ip
@@ -279,7 +302,7 @@ class DiscoveryCoordinator(private val context: Context) {
                                 val db = AppDatabase.getInstance(context)
                                 val repository = WardrivingRepository(db)
                                 repository.processAndSaveTargetDevice(
-                                    macAddress = mac.uppercase(),
+                                    macAddress = normalizedMac.uppercase(),
                                     deviceName = hostname.takeIf { it != ip } ?: vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
                                     category = "CAMERA",
                                     rssi = -50,
@@ -299,15 +322,73 @@ class DiscoveryCoordinator(private val context: Context) {
         }
     }
 
+    /**
+     * Adds any ARP cache entries that don't already exist in the device map.
+     * This catches devices that responded to TCP probes (triggering ARP) but
+     * weren't detected by any of the discovery methods.
+     */
+    private fun addNewArpDevices(arpCache: Map<String, String>) {
+        if (arpCache.isEmpty()) return
+
+        var added = false
+        arpCache.forEach { (ip, mac) ->
+            if (deviceMap[ip] == null) {
+                val normalizedMac = ArpCacheReader.normalizeMac(mac)
+                val vendor = OuiVendorLookup.lookup(normalizedMac) ?: guessVendorFromHostname(ip)
+                val wifiMatch = SurveillanceDeviceWatchdog.classifyWifi("", vendor)
+                val allMatches = listOfNotNull(wifiMatch)
+
+                deviceMap[ip] = RobustLanScanner.Device(
+                    ip = ip,
+                    mac = normalizedMac,
+                    hostname = null,
+                    openPorts = emptyList(),
+                    source = "arp",
+                    vendor = vendor,
+                    securityMatches = allMatches
+                )
+                added = true
+
+                scope.launch {
+                    val hostname = ip
+                    if (SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
+                        try {
+                            val db = AppDatabase.getInstance(context)
+                            val repository = WardrivingRepository(db)
+                            repository.processAndSaveTargetDevice(
+                                macAddress = normalizedMac.uppercase(),
+                                deviceName = vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
+                                category = "CAMERA",
+                                rssi = -50,
+                                latitude = null,
+                                longitude = null
+                            )
+                        } catch (e: Exception) {
+                            Log.e(tag, "Failed to save Ring camera from ARP discovery", e)
+                        }
+                    }
+                }
+            }
+        }
+        if (added) {
+            _devices.value = deviceMap.values.sortedBy { it.ip }
+        }
+    }
+
+    private fun guessVendorFromHostname(hostname: String?): String? {
+        return scanner.guessVendorFromHostname(hostname)
+    }
+
     private fun addOrMerge(dev: RobustLanScanner.Device, arpCache: Map<String, String> = emptyMap()) {
-        val arpMac = dev.mac ?: arpCache[dev.ip] ?: ArpCacheReader.macForIp(dev.ip)
+        val rawMac = dev.mac ?: arpCache[dev.ip] ?: ArpCacheReader.macForIp(dev.ip)
+        val arpMac = rawMac?.let { ArpCacheReader.normalizeMac(it) }
         val existing = deviceMap[dev.ip]
         
         val currentVendor = dev.vendor ?: (arpMac?.let { OuiVendorLookup.lookup(it) })
             ?: scanner.guessVendorFromHostname(dev.hostname)
 
         val merged = if (existing != null) {
-            val finalMac = arpMac ?: existing.mac ?: ArpCacheReader.macForIp(dev.ip)
+            val finalMac = arpMac ?: existing.mac ?: ArpCacheReader.macForIp(dev.ip)?.let { ArpCacheReader.normalizeMac(it) }
             val finalVendor = currentVendor ?: existing.vendor ?: (finalMac?.let { OuiVendorLookup.lookup(it) })
             val finalPorts = (existing.openPorts + dev.openPorts).distinct().sorted()
             val finalMatches = (existing.securityMatches + dev.securityMatches).distinctBy { it.category to it.matchedOn }
