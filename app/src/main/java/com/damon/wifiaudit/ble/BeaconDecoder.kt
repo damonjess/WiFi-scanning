@@ -41,44 +41,48 @@ object BeaconDecoder {
     }
 
     fun decode(adv: BleAdvertisement): DecodedBeacon? {
-        // 1. iBeacon
-        adv.manufacturerData[APPLE_COMPANY_ID]?.let { payload ->
-            IBeaconParser.parsePayload(payload)?.let {
-                return DecodedBeacon(
-                    type = "iBeacon",
-                    summary = "uuid=${it.uuid} major=${it.major} minor=${it.minor}",
-                    fields = mapOf(
-                        "UUID" to it.uuid,
-                        "Major" to it.major.toString(),
-                        "Minor" to it.minor.toString()
+        return try {
+            // 1. iBeacon
+            adv.manufacturerData[APPLE_COMPANY_ID]?.let { payload ->
+                IBeaconParser.parsePayload(payload)?.let {
+                    return DecodedBeacon(
+                        type = "iBeacon",
+                        summary = "uuid=${it.uuid} major=${it.major} minor=${it.minor}",
+                        fields = mapOf(
+                            "UUID" to it.uuid,
+                            "Major" to it.major.toString(),
+                            "Minor" to it.minor.toString()
+                        )
                     )
-                )
+                }
             }
+
+            // 2. AltBeacon — scan every manufacturer-data entry for the 0xBEAC code
+            for ((_, payload) in adv.manufacturerData) {
+                AltBeaconParser.parse(payload)?.let { return it }
+            }
+
+            // 3. Eddystone
+            adv.serviceData[eddystoneUuid]?.let { EddystoneParser.parse(it) }?.let { return it }
+
+            // 4-7. Proprietary service-data envelopes (Tile, FastPair, Xiaomi, Samsung)
+            for ((uuid, payload) in adv.serviceData) {
+                ProprietaryBeaconRecognizers.recognizeServiceData(uuid, payload)?.let { return it }
+            }
+
+            // 8-9. Proprietary manufacturer-data envelopes (Ruuvi, Microsoft, Samsung)
+            for ((companyId, payload) in adv.manufacturerData) {
+                ProprietaryBeaconRecognizers.recognizeManufacturer(companyId, payload)?.let { return it }
+            }
+
+            null
+        } catch (e: Exception) {
+            null
         }
-
-        // 2. AltBeacon — scan every manufacturer-data entry for the 0xBEAC code
-        for ((_, payload) in adv.manufacturerData) {
-            AltBeaconParser.parse(payload)?.let { return it }
-        }
-
-        // 3. Eddystone
-        adv.serviceData[eddystoneUuid]?.let { EddystoneParser.parse(it) }?.let { return it }
-
-        // 4-7. Proprietary service-data envelopes (Tile, FastPair, Xiaomi, Samsung)
-        for ((uuid, payload) in adv.serviceData) {
-            ProprietaryBeaconRecognizers.recognizeServiceData(uuid, payload)?.let { return it }
-        }
-
-        // 8-9. Proprietary manufacturer-data envelopes (Ruuvi, Microsoft, Samsung)
-        for ((companyId, payload) in adv.manufacturerData) {
-            ProprietaryBeaconRecognizers.recognizeManufacturer(companyId, payload)?.let { return it }
-        }
-
-        return null
     }
 
     private fun shortUuid(value: Int): UUID {
-        val hex = value.toString(16).padStart(4, '0')
+        val hex = "%04x".format(value and 0xFFFF)
         return UUID.fromString("0000$hex-0000-1000-8000-00805f9b34fb")
     }
 }

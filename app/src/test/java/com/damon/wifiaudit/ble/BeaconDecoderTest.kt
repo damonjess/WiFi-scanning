@@ -223,4 +223,24 @@ class BeaconDecoderTest {
         assertTrue(adv.manufacturerData.containsKey(0x004C))
         assertTrue(adv.manufacturerData.containsKey(0x0006))
     }
+
+    // ---- 32-bit UUID with MSB set (negative Int in legacy toString) ----
+
+    @Test
+    fun parses32BitUuidWithHighBitSetWithoutCrashing() {
+        // 0x05 = 32-bit UUID complete list. Payload: 0x00, 0x00, 0x00, 0x80 (little endian for 0x80000000)
+        val payload = byteArrayOf(0x00, 0x00, 0x00, 0x80.toByte())
+        val bytes = ad(0x05, payload)
+        val adv = BleAdvertisementParser.parse(bytes)
+
+        assertEquals(1, adv.serviceUuids.size)
+        assertEquals("80000000-0000-1000-8000-00805f9b34fb", adv.serviceUuids[0].toString())
+    }
+
+    @Test
+    fun parsesCorruptedAdvBytesWithoutCrashing() {
+        val bytes = byteArrayOf(0x05, 0x05, 0xFF.toByte(), 0x80.toByte())
+        val adv = BleAdvertisementParser.parse(bytes)
+        assertNotNull(adv)
+    }
 }

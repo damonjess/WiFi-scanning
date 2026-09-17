@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,57 +43,61 @@ class BleScanManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     private fun upsertDevice(result: ScanResult) {
-        val record = result.scanRecord
-        val iBeacon = IBeaconParser.parse(record)
-        val decoded = BeaconDecoder.decode(record)
+        try {
+            val record = result.scanRecord
+            val iBeacon = IBeaconParser.parse(record)
+            val decoded = BeaconDecoder.decode(record)
 
-        val txPower = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE }
+            val txPower = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE }
 
-        val info = BleDeviceInfo(
-            macAddress = result.device.address,
-            deviceName = record?.deviceName ?: result.device.name,
-            rssi = result.rssi,
-            txPowerLevel = txPower,
-            serviceUuids = record?.serviceUuids?.map { it.uuid.toString() } ?: emptyList(),
-            iBeaconMajor = iBeacon?.major,
-            iBeaconMinor = iBeacon?.minor,
-            iBeaconUuid = iBeacon?.uuid,
-            beaconType = decoded?.type,
-            beaconPayload = decoded?.summary,
-            lastSeenMillis = System.currentTimeMillis(),
-            manufacturerFromAdv = parseManufacturerData(record),
-            rawBytes = record?.bytes,
-            isConnectable = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                result.isConnectable
-            } else {
-                record?.advertiseFlags?.let { flags -> (flags and 0x02) != 0 } ?: false
+            val info = BleDeviceInfo(
+                macAddress = result.device.address ?: "00:00:00:00:00:00",
+                deviceName = try { record?.deviceName ?: result.device.name } catch (_: SecurityException) { null },
+                rssi = result.rssi,
+                txPowerLevel = txPower,
+                serviceUuids = try { record?.serviceUuids?.map { it.uuid.toString() } ?: emptyList() } catch (_: Exception) { emptyList() },
+                iBeaconMajor = iBeacon?.major,
+                iBeaconMinor = iBeacon?.minor,
+                iBeaconUuid = iBeacon?.uuid,
+                beaconType = decoded?.type,
+                beaconPayload = decoded?.summary,
+                lastSeenMillis = System.currentTimeMillis(),
+                manufacturerFromAdv = parseManufacturerData(record),
+                rawBytes = record?.bytes,
+                isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    result.isConnectable
+                } else {
+                    record?.advertiseFlags?.let { flags -> (flags and 0x02) != 0 } ?: false
+                }
+            )
+
+            val updatedMap = _devices.value.toMutableMap().apply {
+                put(info.macAddress, info)
+                if (size > 500) {
+                    val cutoff = System.currentTimeMillis() - 300_000L
+                    entries.removeIf { it.value.lastSeenMillis < cutoff }
+                }
             }
-        )
+            _devices.value = updatedMap
 
-        val updatedMap = _devices.value.toMutableMap().apply {
-            put(info.macAddress, info)
-            if (size > 500) {
-                val cutoff = System.currentTimeMillis() - 300_000L
-                entries.removeIf { it.value.lastSeenMillis < cutoff }
-            }
+            // Feed sighting into tracker detector
+            trackerDetector.recordSighting(
+                macAddress = info.macAddress,
+                deviceName = info.deviceName,
+                manufacturerFromAdv = info.manufacturerFromAdv,
+                serviceUuids = info.serviceUuids,
+                iBeaconUuid = info.iBeaconUuid,
+                iBeaconMajor = info.iBeaconMajor,
+                iBeaconMinor = info.iBeaconMinor,
+                beaconType = info.beaconType,
+                rssi = info.rssi
+            )
+
+            // Feed into spoofing detector
+            spoofingDetector.recordDevice(info)
+        } catch (e: Exception) {
+            Log.e("BleScanManager", "Error processing BLE scan result", e)
         }
-        _devices.value = updatedMap
-
-        // Feed sighting into tracker detector
-        trackerDetector.recordSighting(
-            macAddress = info.macAddress,
-            deviceName = info.deviceName,
-            manufacturerFromAdv = info.manufacturerFromAdv,
-            serviceUuids = info.serviceUuids,
-            iBeaconUuid = info.iBeaconUuid,
-            iBeaconMajor = info.iBeaconMajor,
-            iBeaconMinor = info.iBeaconMinor,
-            beaconType = info.beaconType,
-            rssi = info.rssi
-        )
-
-        // Feed into spoofing detector
-        spoofingDetector.recordDevice(info)
     }
 
     private fun parseManufacturerData(record: android.bluetooth.le.ScanRecord?): String? {

@@ -15,6 +15,7 @@ import android.location.Location
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.damon.wifiaudit.ble.BleDeviceInfo
@@ -76,41 +77,49 @@ class WardrivingService : Service() {
     }
 
     private fun upsertBle(result: BleScanResult) {
-        val record = result.scanRecord
-        val iBeacon = IBeaconParser.parse(record)
-        val decoded = BeaconDecoder.decode(record)
+        try {
+            val record = result.scanRecord
+            val iBeacon = IBeaconParser.parse(record)
+            val decoded = BeaconDecoder.decode(record)
 
-        val deviceName = try {
-            record?.deviceName ?: result.device.name
-        } catch (_: SecurityException) {
-            null
-        }
-
-        val info = BleDeviceInfo(
-            macAddress = result.device.address,
-            deviceName = deviceName,
-            rssi = result.rssi,
-            txPowerLevel = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE },
-            serviceUuids = record?.serviceUuids?.map { it.uuid.toString() } ?: emptyList(),
-            iBeaconMajor = iBeacon?.major,
-            iBeaconMinor = iBeacon?.minor,
-            iBeaconUuid = iBeacon?.uuid,
-            beaconType = decoded?.type,
-            beaconPayload = decoded?.summary,
-            lastSeenMillis = System.currentTimeMillis(),
-            rawBytes = record?.bytes,
-            isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                result.isConnectable
-            } else {
-                record?.advertiseFlags?.let { flags -> (flags and 0x02) != 0 } ?: false
+            val deviceName = try {
+                record?.deviceName ?: result.device.name
+            } catch (_: SecurityException) {
+                null
             }
-        )
-        bleDeviceMap[info.macAddress] = info
-        if (bleDeviceMap.size > 500) {
-            val now = System.currentTimeMillis()
-            bleDeviceMap.entries.removeIf { now - it.value.lastSeenMillis > 120_000 }
+
+            val info = BleDeviceInfo(
+                macAddress = result.device.address ?: "00:00:00:00:00:00",
+                deviceName = deviceName,
+                rssi = result.rssi,
+                txPowerLevel = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE },
+                serviceUuids = try {
+                    record?.serviceUuids?.map { it.uuid.toString() } ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                },
+                iBeaconMajor = iBeacon?.major,
+                iBeaconMinor = iBeacon?.minor,
+                iBeaconUuid = iBeacon?.uuid,
+                beaconType = decoded?.type,
+                beaconPayload = decoded?.summary,
+                lastSeenMillis = System.currentTimeMillis(),
+                rawBytes = record?.bytes,
+                isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    result.isConnectable
+                } else {
+                    record?.advertiseFlags?.let { flags -> (flags and 0x02) != 0 } ?: false
+                }
+            )
+            bleDeviceMap[info.macAddress] = info
+            if (bleDeviceMap.size > 500) {
+                val now = System.currentTimeMillis()
+                bleDeviceMap.entries.removeIf { now - it.value.lastSeenMillis > 120_000 }
+            }
+            ScanStatusRepository.updateBleDevices(bleDeviceMap.values.toList())
+        } catch (e: Exception) {
+            Log.e("WardrivingService", "Error processing BLE scan result", e)
         }
-        ScanStatusRepository.updateBleDevices(bleDeviceMap.values.toList())
     }
 
     // ---- GPS ----

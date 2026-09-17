@@ -111,7 +111,7 @@ object ProprietaryBeaconRecognizers {
     // ---- UUID helpers ----
 
     private fun shortUuid(value: Int): UUID {
-        val hex = value.toString(16).padStart(4, '0')
+        val hex = "%04x".format(value and 0xFFFF)
         return UUID.fromString("0000$hex-0000-1000-8000-00805f9b34fb")
     }
 

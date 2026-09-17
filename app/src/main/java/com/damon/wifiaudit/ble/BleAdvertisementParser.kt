@@ -65,112 +65,116 @@ object BleAdvertisementParser {
     fun parse(bytes: ByteArray?): BleAdvertisement {
         if (bytes == null || bytes.isEmpty()) return BleAdvertisement(ByteArray(0))
 
-        val serviceUuids = mutableListOf<UUID>()
-        val manufacturerData = mutableMapOf<Int, ByteArray>()
-        val serviceData = mutableMapOf<UUID, ByteArray>()
-        var flags: Int? = null
-        var localName: String? = null
-        var txPower: Int? = null
+        return try {
+            val serviceUuids = mutableListOf<UUID>()
+            val manufacturerData = mutableMapOf<Int, ByteArray>()
+            val serviceData = mutableMapOf<UUID, ByteArray>()
+            var flags: Int? = null
+            var localName: String? = null
+            var txPower: Int? = null
 
-        var offset = 0
-        while (offset < bytes.size) {
-            val length = bytes[offset].toInt() and 0xFF
-            if (length == 0) break
-            if (offset + 1 + length > bytes.size) break // truncated, stop
+            var offset = 0
+            while (offset < bytes.size) {
+                val length = bytes[offset].toInt() and 0xFF
+                if (length == 0) break
+                if (offset + 1 + length > bytes.size) break // truncated, stop
 
-            val type = bytes[offset + 1].toInt() and 0xFF
-            // payload starts after the type byte; its length is (length - 1)
-            val payloadStart = offset + 2
-            val payloadEnd = offset + 1 + length
-            if (payloadEnd > bytes.size) break
-            val payload = bytes.copyOfRange(payloadStart, payloadEnd)
+                val type = bytes[offset + 1].toInt() and 0xFF
+                // payload starts after the type byte; its length is (length - 1)
+                val payloadStart = offset + 2
+                val payloadEnd = offset + 1 + length
+                if (payloadEnd > bytes.size) break
+                val payload = bytes.copyOfRange(payloadStart, payloadEnd)
 
-            when (type.toByte()) {
-                AD_FLAGS -> {
-                    if (payload.isNotEmpty()) flags = payload[0].toInt() and 0xFF
-                }
-                AD_UUID16_COMPLETE, AD_UUID16_INCOMPLETE -> {
-                    var i = 0
-                    while (i + 1 < payload.size) {
-                        serviceUuids += uuid16(payload[i], payload[i + 1])
-                        i += 2
+                when (type.toByte()) {
+                    AD_FLAGS -> {
+                        if (payload.isNotEmpty()) flags = payload[0].toInt() and 0xFF
+                    }
+                    AD_UUID16_COMPLETE, AD_UUID16_INCOMPLETE -> {
+                        var i = 0
+                        while (i + 1 < payload.size) {
+                            serviceUuids += uuid16(payload[i], payload[i + 1])
+                            i += 2
+                        }
+                    }
+                    AD_UUID32_COMPLETE, AD_UUID32_INCOMPLETE -> {
+                        var i = 0
+                        while (i + 3 < payload.size) {
+                            serviceUuids += uuid32(payload, i)
+                            i += 4
+                        }
+                    }
+                    AD_UUID128_COMPLETE, AD_UUID128_INCOMPLETE -> {
+                        var i = 0
+                        while (i + 15 < payload.size) {
+                            serviceUuids += uuid128(payload, i)
+                            i += 16
+                        }
+                    }
+                    AD_NAME_SHORT, AD_NAME_COMPLETE -> {
+                        localName = runCatching { String(payload, Charsets.ISO_8859_1).trim().ifEmpty { null } }.getOrNull()
+                    }
+                    AD_TX_POWER -> {
+                        if (payload.isNotEmpty()) txPower = payload[0].toInt()
+                    }
+                    AD_SERVICE_DATA_16 -> {
+                        if (payload.size >= 2) {
+                            val uuid = uuid16(payload[0], payload[1])
+                            serviceData[uuid] = payload.copyOfRange(2, payload.size)
+                        }
+                    }
+                    AD_SERVICE_DATA_32 -> {
+                        if (payload.size >= 4) {
+                            val uuid = uuid32(payload, 0)
+                            serviceData[uuid] = payload.copyOfRange(4, payload.size)
+                        }
+                    }
+                    AD_SERVICE_DATA_128 -> {
+                        if (payload.size >= 16) {
+                            val uuid = uuid128(payload, 0)
+                            serviceData[uuid] = payload.copyOfRange(16, payload.size)
+                        }
+                    }
+                    AD_MANUFACTURER -> {
+                        if (payload.size >= 2) {
+                            val companyId = (payload[0].toInt() and 0xFF) or
+                                ((payload[1].toInt() and 0xFF) shl 8)
+                            manufacturerData[companyId] = payload.copyOfRange(2, payload.size)
+                        }
                     }
                 }
-                AD_UUID32_COMPLETE, AD_UUID32_INCOMPLETE -> {
-                    var i = 0
-                    while (i + 3 < payload.size) {
-                        serviceUuids += uuid32(payload, i)
-                        i += 4
-                    }
-                }
-                AD_UUID128_COMPLETE, AD_UUID128_INCOMPLETE -> {
-                    var i = 0
-                    while (i + 15 < payload.size) {
-                        serviceUuids += uuid128(payload, i)
-                        i += 16
-                    }
-                }
-                AD_NAME_SHORT, AD_NAME_COMPLETE -> {
-                    localName = runCatching { String(payload, Charsets.ISO_8859_1).trim().ifEmpty { null } }.getOrNull()
-                }
-                AD_TX_POWER -> {
-                    if (payload.isNotEmpty()) txPower = payload[0].toInt()
-                }
-                AD_SERVICE_DATA_16 -> {
-                    if (payload.size >= 2) {
-                        val uuid = uuid16(payload[0], payload[1])
-                        serviceData[uuid] = payload.copyOfRange(2, payload.size)
-                    }
-                }
-                AD_SERVICE_DATA_32 -> {
-                    if (payload.size >= 4) {
-                        val uuid = uuid32(payload, 0)
-                        serviceData[uuid] = payload.copyOfRange(4, payload.size)
-                    }
-                }
-                AD_SERVICE_DATA_128 -> {
-                    if (payload.size >= 16) {
-                        val uuid = uuid128(payload, 0)
-                        serviceData[uuid] = payload.copyOfRange(16, payload.size)
-                    }
-                }
-                AD_MANUFACTURER -> {
-                    if (payload.size >= 2) {
-                        val companyId = (payload[0].toInt() and 0xFF) or
-                            ((payload[1].toInt() and 0xFF) shl 8)
-                        manufacturerData[companyId] = payload.copyOfRange(2, payload.size)
-                    }
-                }
+
+                offset = payloadEnd
             }
 
-            offset = payloadEnd
+            val connectable = flags?.let { (it and 0x02) != 0 } ?: false
+            BleAdvertisement(
+                rawBytes = bytes,
+                flags = flags,
+                localName = localName,
+                txPowerLevel = txPower,
+                serviceUuids = serviceUuids,
+                manufacturerData = manufacturerData,
+                serviceData = serviceData,
+                isConnectable = connectable
+            )
+        } catch (e: Exception) {
+            BleAdvertisement(rawBytes = bytes)
         }
-
-        val connectable = flags?.let { (it and 0x02) != 0 } ?: false
-        return BleAdvertisement(
-            rawBytes = bytes,
-            flags = flags,
-            localName = localName,
-            txPowerLevel = txPower,
-            serviceUuids = serviceUuids,
-            manufacturerData = manufacturerData,
-            serviceData = serviceData,
-            isConnectable = connectable
-        )
     }
 
     // ---- UUID helpers ----
 
     private fun uuid16(b0: Byte, b1: Byte): UUID {
         val value = (b0.toInt() and 0xFF) or ((b1.toInt() and 0xFF) shl 8)
-        val hex = value.toString(16).padStart(4, '0')
+        val hex = "%04x".format(value)
         return UUID.fromString("0000$hex-0000-1000-8000-00805f9b34fb")
     }
 
     private fun uuid32(b: ByteArray, offset: Int): UUID {
-        var v = 0
-        for (i in 0..3) v = v or ((b[offset + i].toInt() and 0xFF) shl (8 * i))
-        val hex = v.toString(16).padStart(8, '0')
+        var v = 0L
+        for (i in 0..3) v = v or ((b[offset + i].toLong() and 0xFF) shl (8 * i))
+        val hex = "%08x".format(v)
         return UUID.fromString("$hex-0000-1000-8000-00805f9b34fb")
     }
 
