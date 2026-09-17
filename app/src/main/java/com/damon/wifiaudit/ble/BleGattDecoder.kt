@@ -51,7 +51,7 @@ object BleGattDecoder {
                     decodeAppearance(raw)
                 } else null
             }
-            "2A1C", "2A6E" -> { // Temperature
+            "2A1C", "2A6E" -> { // Temperature Measurement / Temperature Type
                 decodeTemperature(bytes)
             }
             "2A6F" -> { // Humidity
@@ -84,12 +84,6 @@ object BleGattDecoder {
             "2A89" -> { // Weight Measurement
                 decodeWeightMeasurement(bytes)
             }
-            "2A4A" -> { // Report Map (HID)
-                "HID Report Map (${bytes.size} bytes)"
-            }
-            "2A4C" -> { // Report (HID)
-                "HID Report (${bytes.size} bytes)"
-            }
             else -> {
                 // Fallback: UTF-8 decoding if all characters are printable ASCII
                 if (bytes.all { it in 32..126 || it == 10.toByte() || it == 13.toByte() }) {
@@ -98,81 +92,6 @@ object BleGattDecoder {
                 } else null
             }
         }
-    }
-
-    private fun decodeDateTime(bytes: ByteArray): String? {
-        if (bytes.size < 7) return null
-        val year = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
-        val month = bytes[2].toInt() and 0xFF
-        val day = bytes[3].toInt() and 0xFF
-        val hour = bytes[4].toInt() and 0xFF
-        val min = bytes[5].toInt() and 0xFF
-        val sec = bytes[6].toInt() and 0xFF
-        return String.format(Locale.US, "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, min, sec)
-    }
-
-    private fun decodeCurrentTime(bytes: ByteArray): String? {
-        if (bytes.size < 7) return null
-        val year = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
-        val month = bytes[2].toInt() and 0xFF
-        val day = bytes[3].toInt() and 0xFF
-        val hour = bytes[4].toInt() and 0xFF
-        val min = bytes[5].toInt() and 0xFF
-        val sec = bytes[6].toInt() and 0xFF
-        val dayOfWeek = if (bytes.size >= 8) bytes[7].toInt() and 0xFF else 0
-        val dayNames = arrayOf("Unknown", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-        val dayName = if (dayOfWeek in 0..7) dayNames[dayOfWeek] else "Unknown"
-        return String.format(Locale.US, "%04d-%02d-%02d %02d:%02d:%02d (%s)", year, month, day, hour, min, sec, dayName)
-    }
-
-    private fun decodeBloodPressure(bytes: ByteArray): String? {
-        if (bytes.size < 7) return null
-        val flags = bytes[0].toInt() and 0xFF
-        val isKpa = (flags and 0x01) != 0
-        val sys = ((bytes[1].toInt() and 0xFF) or ((bytes[2].toInt() and 0xFF) shl 8)).toFloat() / 1000f * if (isKpa) 1f else 1f
-        val dia = ((bytes[3].toInt() and 0xFF) or ((bytes[4].toInt() and 0xFF) shl 8)).toFloat() / 1000f
-        val unit = if (isKpa) "kPa" else "mmHg"
-        return String.format(Locale.US, "%.0f/%.0f %s", sys, dia, unit)
-    }
-
-    private fun decodeRscMeasurement(bytes: ByteArray): String? {
-        if (bytes.isEmpty()) return null
-        val flags = bytes[0].toInt() and 0xFF
-        var offset = 1
-        val sb = StringBuilder()
-
-        // Instantaneous Speed
-        if (bytes.size >= offset + 2) {
-            val speed = ((bytes[offset].toInt() and 0xFF) or ((bytes[offset + 1].toInt() and 0xFF) shl 8)).toFloat() / 256f
-            sb.append(String.format(Locale.US, "Speed: %.2f m/s", speed))
-            offset += 2
-        }
-
-        // Instantaneous Cadence
-        if ((flags and 0x01) != 0 && bytes.size >= offset + 1) {
-            val cadence = bytes[offset].toInt() and 0xFF
-            sb.append(", Cadence: $cadence rpm")
-            offset += 1
-        }
-
-        // Instantaneous Stride Length
-        if ((flags and 0x02) != 0 && bytes.size >= offset + 2) {
-            val stride = ((bytes[offset].toInt() and 0xFF) or ((bytes[offset + 1].toInt() and 0xFF) shl 8)).toFloat() / 10f
-            sb.append(", Stride: ${stride}cm")
-        }
-
-        return sb.toString().ifBlank { null }
-    }
-
-    private fun decodeWeightMeasurement(bytes: ByteArray): String? {
-        if (bytes.isEmpty()) return null
-        val flags = bytes[0].toInt() and 0xFF
-        val isImperial = (flags and 0x01) != 0
-        if (bytes.size < 3) return null
-        val weightRaw = ((bytes[1].toInt() and 0xFF) or ((bytes[2].toInt() and 0xFF) shl 8)).toFloat() / 200f
-        val weight = if (isImperial) weightRaw * 2.20462f else weightRaw
-        val unit = if (isImperial) "lb" else "kg"
-        return String.format(Locale.US, "%.1f %s", weight, unit)
     }
 
     private fun decodeAppearance(value: Int): String {
@@ -231,6 +150,78 @@ object BleGattDecoder {
         }
 
         return "$bpm BPM"
+    }
+
+    private fun decodeDateTime(bytes: ByteArray): String? {
+        if (bytes.size < 7) return null
+        val year = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
+        val month = bytes[2].toInt() and 0xFF
+        val day = bytes[3].toInt() and 0xFF
+        val hour = bytes[4].toInt() and 0xFF
+        val min = bytes[5].toInt() and 0xFF
+        val sec = bytes[6].toInt() and 0xFF
+        return String.format(Locale.US, "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, min, sec)
+    }
+
+    private fun decodeCurrentTime(bytes: ByteArray): String? {
+        if (bytes.size < 7) return null
+        val year = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
+        val month = bytes[2].toInt() and 0xFF
+        val day = bytes[3].toInt() and 0xFF
+        val hour = bytes[4].toInt() and 0xFF
+        val min = bytes[5].toInt() and 0xFF
+        val sec = bytes[6].toInt() and 0xFF
+        val dayOfWeek = if (bytes.size >= 8) bytes[7].toInt() and 0xFF else 0
+        val dayNames = arrayOf("Unknown", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        val dayName = if (dayOfWeek in 0..7) dayNames[dayOfWeek] else "Unknown"
+        return String.format(Locale.US, "%04d-%02d-%02d %02d:%02d:%02d (%s)", year, month, day, hour, min, sec, dayName)
+    }
+
+    private fun decodeBloodPressure(bytes: ByteArray): String? {
+        if (bytes.size < 7) return null
+        val flags = bytes[0].toInt() and 0xFF
+        val isKpa = (flags and 0x01) != 0
+        val sys = ((bytes[1].toInt() and 0xFF) or ((bytes[2].toInt() and 0xFF) shl 8)).toFloat() / 1000f
+        val dia = ((bytes[3].toInt() and 0xFF) or ((bytes[4].toInt() and 0xFF) shl 8)).toFloat() / 1000f
+        val unit = if (isKpa) "kPa" else "mmHg"
+        return String.format(Locale.US, "%.0f/%.0f %s", sys, dia, unit)
+    }
+
+    private fun decodeRscMeasurement(bytes: ByteArray): String? {
+        if (bytes.isEmpty()) return null
+        val flags = bytes[0].toInt() and 0xFF
+        var offset = 1
+        val sb = StringBuilder()
+
+        if (bytes.size >= offset + 2) {
+            val speed = ((bytes[offset].toInt() and 0xFF) or ((bytes[offset + 1].toInt() and 0xFF) shl 8)).toFloat() / 256f
+            sb.append(String.format(Locale.US, "Speed: %.2f m/s", speed))
+            offset += 2
+        }
+
+        if ((flags and 0x01) != 0 && bytes.size >= offset + 1) {
+            val cadence = bytes[offset].toInt() and 0xFF
+            sb.append(", Cadence: $cadence rpm")
+            offset += 1
+        }
+
+        if ((flags and 0x02) != 0 && bytes.size >= offset + 2) {
+            val stride = ((bytes[offset].toInt() and 0xFF) or ((bytes[offset + 1].toInt() and 0xFF) shl 8)).toFloat() / 10f
+            sb.append(", Stride: ${stride}cm")
+        }
+
+        return sb.toString().ifBlank { null }
+    }
+
+    private fun decodeWeightMeasurement(bytes: ByteArray): String? {
+        if (bytes.isEmpty()) return null
+        val flags = bytes[0].toInt() and 0xFF
+        val isImperial = (flags and 0x01) != 0
+        if (bytes.size < 3) return null
+        val weightRaw = ((bytes[1].toInt() and 0xFF) or ((bytes[2].toInt() and 0xFF) shl 8)).toFloat() / 200f
+        val weight = if (isImperial) weightRaw * 2.20462f else weightRaw
+        val unit = if (isImperial) "lb" else "kg"
+        return String.format(Locale.US, "%.1f %s", weight, unit)
     }
 
     /**
@@ -303,48 +294,53 @@ object BleGattDecoder {
             uuids.contains("FEF1") -> VendorFingerprint("Tesla Key System", "🚗", "Tesla vehicle digital key BLE service.")
             uuids.contains("FE55") || uuids.contains("FE2E") -> VendorFingerprint("Bose Audio", "🎧", "Bose wireless audio control protocol.")
             uuids.contains("FE4B") -> VendorFingerprint("Fitbit", "⌚", "Fitbit activity tracking service.")
-            uuids.contains("FE0F") -> VendorFingerprint("Philips Hue", "💡", "Philips Hue smart lighting BLE mesh service.")
+            uuids.contains("FE0F") || uuids.contains("FE13") -> VendorFingerprint("Philips Hue", "💡", "Philips Hue smart lighting BLE mesh service.")
             uuids.contains("FED5") -> VendorFingerprint("SwitchBot", "🤖", "SwitchBot automation controller service.")
-            uuids.contains("FE95") || uuids.contains("FE96") -> VendorFingerprint("Xiaomi IoT", "📱", "Xiaomi MiBeacon/Flora smart device service.")
-            uuids.contains("FE9F") -> VendorFingerprint("Apple Nearby", "🍎", "Apple proximity service for nearby device discovery.")
-            uuids.contains("FEAA") -> VendorFingerprint("Eddystone", "📡", "Google Eddystone beacon protocol.")
-            uuids.contains("FD6F") -> VendorFingerprint("Exposure Notification", "📍", "COVID-19 exposure notification BLE service.")
-            uuids.contains("FEF4") -> VendorFingerprint("BMW Digital Key", "🚗", "BMW vehicle digital key BLE service.")
-            uuids.contains("FEF5") -> VendorFingerprint("Mercedes Digital Key", "🚗", "Mercedes-Benz vehicle digital key BLE service.")
-            uuids.contains("FEF2") -> VendorFingerprint("Volkswagen Connected Car", "🚗", "Volkswagen vehicle BLE connected car service.")
-            uuids.contains("FE60") -> VendorFingerprint("Huawei Device", "📱", "Huawei smart device BLE service.")
-            uuids.contains("FEE1") -> VendorFingerprint("Huawei IoT", "🏠", "Huawei smart home IoT service.")
-            uuids.contains("FECB") -> VendorFingerprint("Ring", "🔔", "Ring doorbell or security device BLE service.")
-            uuids.contains("FECC") -> VendorFingerprint("Wyze", "📹", "Wyze smart home device BLE service.")
-            uuids.contains("FECE") -> VendorFingerprint("Arlo", "📹", "Arlo security camera BLE service.")
-            uuids.contains("FED0") -> VendorFingerprint("Sonos", "🔊", "Sonos audio speaker BLE service.")
-            uuids.contains("FED1") -> VendorFingerprint("LIFX", "💡", "LIFX smart lighting BLE service.")
-            uuids.contains("FED2") -> VendorFingerprint("TP-Link Kasa", "🔌", "TP-Link Kasa smart home BLE service.")
-            uuids.contains("FED7") -> VendorFingerprint("Google Nest", "🏠", "Google Nest device BLE service.")
-            uuids.contains("FEF6") -> VendorFingerprint("Govee", "💡", "Govee smart lighting BLE service.")
-            uuids.contains("FEF7") -> VendorFingerprint("Nuki", "🔒", "Nuki smart lock BLE service.")
             uuids.contains("FEF8") -> VendorFingerprint("Oura Ring", "💍", "Oura health tracking smart ring BLE service.")
             uuids.contains("FEA3") -> VendorFingerprint("Withings", "❤️", "Withings health device BLE service.")
             uuids.contains("FEA1") -> VendorFingerprint("Polar", "🏃", "Polar fitness sensor BLE service.")
             uuids.contains("FEA8") -> VendorFingerprint("Whoop", "💪", "Whoop fitness band BLE service.")
             uuids.contains("FE48") -> VendorFingerprint("Garmin", "⌚", "Garmin fitness device BLE service.")
-            uuids.contains("FEF9") -> VendorFingerprint("Wynd", "💨", "Wynd air quality monitor BLE service.")
-            uuids.contains("FE6A") -> VendorFingerprint("Canon Printer", "🖨️", "Canon network printer BLE service.")
-            uuids.contains("FE63") -> VendorFingerprint("GoPro", "📷", "GoPro action camera BLE service.")
-            uuids.contains("FE72") -> VendorFingerprint("DJI Drone", "🚁", "DJI drone BLE control service.")
-            uuids.contains("FE70") -> VendorFingerprint("Nintendo", "🎮", "Nintendo game console BLE service.")
-            uuids.contains("FEFD") -> VendorFingerprint("Hikvision Camera", "📹", "Hikvision IP camera BLE service.")
-            uuids.contains("FEFE") -> VendorFingerprint("Dahua Camera", "📹", "Dahua IP camera BLE service.")
-            uuids.contains("FEE6") -> VendorFingerprint("Dyson", "🌪️", "Dyson smart appliance BLE service.")
-            uuids.contains("FE83") -> VendorFingerprint("Fitbit", "⌚", "Fitbit fitness tracker BLE service.")
-            uuids.contains("FE84") -> VendorFingerprint("Dexcom", "🩸", "Dexcom glucose monitor BLE service.")
-            uuids.contains("FE98") -> VendorFingerprint("Dexcom", "🩸", "Dexcom continuous glucose monitor BLE service.")
-            uuids.contains("FEDD") -> VendorFingerprint("Lockly", "🔒", "Lockly smart lock BLE service.")
+            uuids.contains("FE50") -> VendorFingerprint("Sony", "🎵", "Sony audio device BLE service.")
+            uuids.contains("FE5A") -> VendorFingerprint("Bang & Olufsen", "🔊", "Bang & Olufsen audio BLE service.")
+            uuids.contains("FE4D") -> VendorFingerprint("Sennheiser", "🎧", "Sennheiser audio BLE service.")
+            uuids.contains("FE3C") -> VendorFingerprint("JBL", "🔊", "JBL audio BLE service.")
+            uuids.contains("FE60") -> VendorFingerprint("Huawei", "📱", "Huawei smart device BLE service.")
+            uuids.contains("FE95") || uuids.contains("FE96") -> VendorFingerprint("Xiaomi", "📱", "Xiaomi MiBeacon/Flora smart device service.")
+            uuids.contains("FE58") || uuids.contains("FE61") -> VendorFingerprint("Amazon", "📦", "Amazon device BLE service.")
+            uuids.contains("FECB") -> VendorFingerprint("Ring", "🔔", "Ring doorbell or security device BLE service.")
+            uuids.contains("FECC") -> VendorFingerprint("Wyze", "📹", "Wyze smart home device BLE service.")
+            uuids.contains("FECD") -> VendorFingerprint("Eve Systems", "🏠", "Eve smart home device BLE service.")
+            uuids.contains("FECE") -> VendorFingerprint("Arlo", "📹", "Arlo security camera BLE service.")
+            uuids.contains("FECF") -> VendorFingerprint("Nanoleaf", "💡", "Nanoleaf smart lighting BLE service.")
+            uuids.contains("FED0") -> VendorFingerprint("Sonos", "🔊", "Sonos audio speaker BLE service.")
+            uuids.contains("FED1") -> VendorFingerprint("LIFX", "💡", "LIFX smart lighting BLE service.")
+            uuids.contains("FED2") -> VendorFingerprint("TP-Link Kasa", "🔌", "TP-Link Kasa smart home BLE service.")
+            uuids.contains("FED3") -> VendorFingerprint("Wiz", "💡", "Wiz smart lighting BLE service.")
+            uuids.contains("FED4") -> VendorFingerprint("IKEA TRÅDFRI", "🪑", "IKEA smart home device BLE service.")
             uuids.contains("FED6") -> VendorFingerprint("Ecobee", "🌡️", "Ecobee smart thermostat BLE service.")
+            uuids.contains("FED7") -> VendorFingerprint("Nest", "🏠", "Google Nest device BLE service.")
             uuids.contains("FED8") -> VendorFingerprint("August Lock", "🔒", "August smart lock BLE service.")
             uuids.contains("FED9") -> VendorFingerprint("Yale Lock", "🔒", "Yale smart lock BLE service.")
             uuids.contains("FEDB") -> VendorFingerprint("Schlage Lock", "🔒", "Schlage smart lock BLE service.")
             uuids.contains("FEDC") -> VendorFingerprint("MyQ Garage", "🚪", "Chamberlain/LiftMaster smart garage BLE service.")
+            uuids.contains("FEF6") -> VendorFingerprint("Govee", "💡", "Govee smart lighting BLE service.")
+            uuids.contains("FEF7") -> VendorFingerprint("Nuki", "🔒", "Nuki smart lock BLE service.")
+            uuids.contains("FEF4") -> VendorFingerprint("BMW", "🚗", "BMW vehicle digital key BLE service.")
+            uuids.contains("FEF5") -> VendorFingerprint("Mercedes", "🚗", "Mercedes-Benz vehicle digital key BLE service.")
+            uuids.contains("FEF2") -> VendorFingerprint("Volkswagen", "🚗", "VW vehicle connected car BLE service.")
+            uuids.contains("FE63") -> VendorFingerprint("GoPro", "📷", "GoPro action camera BLE service.")
+            uuids.contains("FE72") -> VendorFingerprint("DJI", "🚁", "DJI drone BLE control service.")
+            uuids.contains("FE70") -> VendorFingerprint("Nintendo", "🎮", "Nintendo game console BLE service.")
+            uuids.contains("FE71") -> VendorFingerprint("Logitech", "🖱️", "Logitech wireless peripheral BLE service.")
+            uuids.contains("FE73") -> VendorFingerprint("Anker", "🔋", "Anker device BLE service.")
+            uuids.contains("FE74") -> VendorFingerprint("Belkin", "📡", "Belkin IoT device BLE service.")
+            uuids.contains("FE75") -> VendorFingerprint("Roku", "📺", "Roku streaming device BLE service.")
+            uuids.contains("FE76") -> VendorFingerprint("Chromecast", "📺", "Google Chromecast streaming device BLE service.")
+            uuids.contains("FE77") || uuids.contains("FE78") -> VendorFingerprint("Nest Cam", "📹", "Google Nest Cam surveillance device BLE service.")
+            uuids.contains("FE62") -> VendorFingerprint("Ledger", "🔐", "Ledger hardware crypto wallet BLE service.")
+            uuids.contains("FE6A") -> VendorFingerprint("Canon", "🖨️", "Canon printer or camera BLE service.")
+            uuids.contains("FE6D") -> VendorFingerprint("Panasonic", "📺", "Panasonic device BLE service.")
             else -> null
         }
     }
