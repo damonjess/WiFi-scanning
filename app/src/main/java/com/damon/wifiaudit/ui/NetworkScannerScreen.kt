@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.damon.wifiaudit.scan.ArpCacheReader
 import com.damon.wifiaudit.scan.NetworkViewModel
 import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 
@@ -122,6 +123,8 @@ fun DeviceCard(
     device: NetworkViewModel.NetworkDevice,
     onClick: () -> Unit
 ) {
+    val titleText = device.deviceName.ifBlank { device.hostname ?: device.ip }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
@@ -132,21 +135,21 @@ fun DeviceCard(
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = device.ip,
-                        style = MaterialTheme.typography.titleLarge,
+                        text = titleText,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    if (device.hostname != null && device.hostname != device.ip) {
-                        Text(
-                            text = device.hostname,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    Text(
+                        text = "IP: ${device.ip}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
                 if (device.responseTime > 0) {
                     Text(
@@ -158,11 +161,18 @@ fun DeviceCard(
             }
             
             if (device.vendor != null) {
-                Text(
-                    text = device.vendor,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
-                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    shape = MaterialTheme.shapes.extraSmall
+                ) {
+                    Text(
+                        text = "Vendor: ${device.vendor}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
             
             if (device.securityMatches.isNotEmpty()) {
@@ -203,14 +213,17 @@ fun DeviceCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (device.mac != null) {
-                    Text(
-                        text = "MAC: ${device.mac}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
+                val macDisplay = when {
+                    device.mac != null -> "MAC: ${device.mac}"
+                    !ArpCacheReader.isArpSupported() -> "MAC: Restricted (Android 10+)"
+                    else -> "MAC: Resolving ARP..."
                 }
+                Text(
+                    text = macDisplay,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (device.mac != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
+                    fontWeight = FontWeight.Bold
+                )
                 
                 if (device.source != null) {
                     Surface(

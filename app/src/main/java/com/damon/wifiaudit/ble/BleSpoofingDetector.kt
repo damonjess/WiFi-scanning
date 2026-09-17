@@ -77,12 +77,31 @@ class BleSpoofingDetector {
 
         // Track by device identity (name + sorted service UUIDs)
         val identityKey = buildIdentityKey(info.deviceName, info.serviceUuids)
-        identityMap.getOrPut(identityKey) { mutableListOf() }.add(snapshot)
+        val identityList = identityMap.getOrPut(identityKey) { mutableListOf() }
+        synchronized(identityList) {
+            identityList.add(snapshot)
+            if (identityList.size > 20) identityList.removeAt(0)
+        }
 
         // Track by iBeacon identity
         if (info.iBeaconUuid != null) {
             val beaconKey = "${info.iBeaconUuid}:${info.iBeaconMajor ?: 0}:${info.iBeaconMinor ?: 0}"
-            ibeaconMap.getOrPut(beaconKey) { mutableListOf() }.add(snapshot)
+            val beaconList = ibeaconMap.getOrPut(beaconKey) { mutableListOf() }
+            synchronized(beaconList) {
+                beaconList.add(snapshot)
+                if (beaconList.size > 20) beaconList.removeAt(0)
+            }
+        }
+
+        // Periodic eviction to prevent unbounded memory growth during long scans
+        if (identityMap.size > 1000 || ibeaconMap.size > 1000) {
+            val cutoff = timestamp - 2 * 60 * 60_000L
+            identityMap.entries.removeIf { (_, list) ->
+                synchronized(list) { list.removeAll { it.timestamp < cutoff }; list.isEmpty() }
+            }
+            ibeaconMap.entries.removeIf { (_, list) ->
+                synchronized(list) { list.removeAll { it.timestamp < cutoff }; list.isEmpty() }
+            }
         }
     }
 

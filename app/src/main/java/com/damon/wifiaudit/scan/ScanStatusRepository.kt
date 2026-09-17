@@ -69,11 +69,21 @@ object ScanStatusRepository {
                 current[newResult.BSSID] = newResult
             }
         }
-        _snapshot.value = _snapshot.value.copy(wifiResults = current.values.toList())
+        val cappedResults = if (current.size > 500) {
+            current.values.sortedByDescending { it.level }.take(500)
+        } else {
+            current.values.toList()
+        }
+        _snapshot.value = _snapshot.value.copy(wifiResults = cappedResults)
     }
 
     fun updateBleDevices(devices: List<BleDeviceInfo>) {
-        _snapshot.value = _snapshot.value.copy(bleDevices = devices)
+        val cappedDevices = if (devices.size > 500) {
+            devices.sortedByDescending { it.rssi }.take(500)
+        } else {
+            devices
+        }
+        _snapshot.value = _snapshot.value.copy(bleDevices = cappedDevices)
     }
 
     fun markCommitted() {

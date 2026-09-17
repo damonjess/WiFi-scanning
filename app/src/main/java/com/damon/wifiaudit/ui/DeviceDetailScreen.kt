@@ -94,7 +94,13 @@ fun DeviceDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Device details") },
+                title = {
+                    Text(
+                        text = state.name.ifBlank { "Device details" },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, null, tint = Color.White)

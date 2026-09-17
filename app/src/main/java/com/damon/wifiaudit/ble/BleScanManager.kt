@@ -69,9 +69,14 @@ class BleScanManager(private val context: Context) {
             }
         )
 
-        _devices.value = _devices.value.toMutableMap().apply {
+        val updatedMap = _devices.value.toMutableMap().apply {
             put(info.macAddress, info)
+            if (size > 500) {
+                val cutoff = System.currentTimeMillis() - 300_000L
+                entries.removeIf { it.value.lastSeenMillis < cutoff }
+            }
         }
+        _devices.value = updatedMap
 
         // Feed sighting into tracker detector
         trackerDetector.recordSighting(

@@ -95,17 +95,22 @@ class DiscoveryCoordinator(private val context: Context) {
                 ssdpJob = launch {
                     try {
                         ssdpHelper.discover(onResult = { ip, info ->
-                            addOrMerge(
-                                RobustLanScanner.Device(
-                                    ip = ip,
-                                    mac = null,
-                                    hostname = info,
-                                    openPorts = emptyList(),
-                                    source = "ssdp",
-                                    vendor = scanner.guessVendorFromHostname(info)
-                                ),
-                                arpCache = arpCache
-                            )
+                            launch {
+                                val desc = if (info.startsWith("http")) ssdpHelper.fetchDeviceDescription(info) else null
+                                val name = desc?.friendlyName ?: desc?.modelName ?: info
+                                val vendor = desc?.manufacturer ?: scanner.guessVendorFromHostname(name)
+                                addOrMerge(
+                                    RobustLanScanner.Device(
+                                        ip = ip,
+                                        mac = null,
+                                        hostname = name,
+                                        openPorts = emptyList(),
+                                        source = "ssdp",
+                                        vendor = vendor
+                                    ),
+                                    arpCache = arpCache
+                                )
+                            }
                         })
                     } catch (e: Exception) {
                         Log.e(tag, "SSDP discovery error", e)
@@ -295,14 +300,14 @@ class DiscoveryCoordinator(private val context: Context) {
     }
 
     private fun addOrMerge(dev: RobustLanScanner.Device, arpCache: Map<String, String> = emptyMap()) {
-        val arpMac = dev.mac ?: arpCache[dev.ip]
+        val arpMac = dev.mac ?: arpCache[dev.ip] ?: ArpCacheReader.macForIp(dev.ip)
         val existing = deviceMap[dev.ip]
         
         val currentVendor = dev.vendor ?: (arpMac?.let { OuiVendorLookup.lookup(it) })
             ?: scanner.guessVendorFromHostname(dev.hostname)
 
         val merged = if (existing != null) {
-            val finalMac = arpMac ?: existing.mac
+            val finalMac = arpMac ?: existing.mac ?: ArpCacheReader.macForIp(dev.ip)
             val finalVendor = currentVendor ?: existing.vendor ?: (finalMac?.let { OuiVendorLookup.lookup(it) })
             val finalPorts = (existing.openPorts + dev.openPorts).distinct().sorted()
             val finalMatches = (existing.securityMatches + dev.securityMatches).distinctBy { it.category to it.matchedOn }
@@ -322,9 +327,38 @@ class DiscoveryCoordinator(private val context: Context) {
         _devices.value = deviceMap.values.sortedBy { it.ip }
 
         scope.launch {
-            val mac = merged.mac ?: "Unknown"
+            var activeMac = merged.mac
+            var activeName = merged.hostname
+
+            if (activeMac == null) {
+                // Try NBNS direct NetBIOS unicast query — returns hardware MAC address directly in payload
+                val nbnsRes = nbnsHelper.queryHost(merged.ip)
+                if (nbnsRes?.macAddress != null) {
+                    activeMac = nbnsRes.macAddress
+                    if (!nbnsRes.netbiosName.isNullOrBlank()) activeName = nbnsRes.netbiosName
+                }
+            }
+
+            if (activeMac == null && ArpCacheReader.isArpSupported()) {
+                activeMac = withContext(Dispatchers.IO) {
+                    ArpCacheReader.resolveMacWithProbe(merged.ip)
+                }
+            }
+
+            if (activeMac != merged.mac || activeName != merged.hostname) {
+                val reVendor = activeMac?.let { OuiVendorLookup.lookup(it) } ?: merged.vendor
+                val updated = merged.copy(
+                    mac = activeMac ?: merged.mac,
+                    hostname = activeName ?: merged.hostname,
+                    vendor = reVendor
+                )
+                deviceMap[merged.ip] = updated
+                _devices.value = deviceMap.values.sortedBy { it.ip }
+            }
+
+            val mac = activeMac ?: "Unknown"
             val vendor = merged.vendor ?: OuiVendorLookup.lookup(mac)
-            val hostname = merged.hostname ?: merged.ip
+            val hostname = activeName ?: merged.ip
 
             if (mac != "Unknown" && SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
                 try {

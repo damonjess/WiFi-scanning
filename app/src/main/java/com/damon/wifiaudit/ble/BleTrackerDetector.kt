@@ -107,6 +107,20 @@ class BleTrackerDetector {
             // Avoid duplicate entries within the same minute
             if (history.isEmpty() || timestamp - history.last().timestamp > 60_000) {
                 history.add(session)
+                if (history.size > 50) {
+                    history.removeAt(0)
+                }
+            }
+        }
+
+        // Periodic cleanup when total tracked devices grow large to prevent memory leaks during long scans
+        if (deviceHistory.size > 1000) {
+            cleanupOldEntries(24 * 60 * 60_000L)
+            if (deviceHistory.size > 1000) {
+                val cutoff = System.currentTimeMillis() - 4 * 60 * 60_000L
+                deviceHistory.entries.removeIf { (_, sessions) ->
+                    sessions.isEmpty() || (sessions.lastOrNull()?.timestamp ?: 0L) < cutoff
+                }
             }
         }
     }

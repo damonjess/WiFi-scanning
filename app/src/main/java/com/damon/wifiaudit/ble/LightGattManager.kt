@@ -25,12 +25,22 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
         val characteristics: List<BleCharacteristic>
     )
 
+    data class BleDescriptor(
+        val uuid: UUID,
+        val name: String?,
+        val value: ByteArray? = null,
+        val lastError: String? = null
+    )
+
     data class BleCharacteristic(
         val uuid: UUID,
         val name: String?,
         val properties: Int,
         val serviceUuid: UUID,
         val value: ByteArray? = null,        // last read/notify value
+        val decodedValue: String? = null,
+        val descriptors: List<BleDescriptor> = emptyList(),
+        val securityFlags: List<BleGattDecoder.SecurityFlag> = emptyList(),
         val isNotifying: Boolean = false,
         val lastError: String? = null
     )
@@ -80,16 +90,36 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
                         uuid = svc.uuid,
                         name = GattUuidResolver.serviceFallbackName(svc.uuid),
                         characteristics = svc.characteristics.map { c ->
+                            val descs = c.descriptors.map { d ->
+                                BleDescriptor(
+                                    uuid = d.uuid,
+                                    name = BleUuidResolver.descriptorName(d.uuid)
+                                )
+                            }
+                            val flags = BleGattDecoder.assessSecurity(c.uuid, svc.uuid, c.properties)
                             BleCharacteristic(
                                 uuid = c.uuid,
                                 name = GattUuidResolver.characteristicFallbackName(c.uuid),
                                 properties = c.properties,
-                                serviceUuid = svc.uuid
+                                serviceUuid = svc.uuid,
+                                descriptors = descs,
+                                securityFlags = flags
                             )
                         }
                     )
                 }
                 _state.value = State.Ready(svcs)
+
+                // Auto-read standard readable characteristics upon discovery
+                val autoReadUuids = setOf("2A00", "2A01", "2A19", "2A24", "2A25", "2A26", "2A27", "2A29")
+                svcs.forEach { svc ->
+                    svc.characteristics.forEach { c ->
+                        val short = BleUuidResolver.shortUuid(c.uuid)
+                        if (short in autoReadUuids && (c.properties and 0x02 != 0)) {
+                            readCharacteristic(svc.uuid, c.uuid)
+                        }
+                    }
+                }
             }
 
             override fun onCharacteristicRead(
@@ -228,8 +258,10 @@ class LightGattManager(private val context: Context, private val device: Bluetoo
             if (svc.uuid != btChar.service.uuid) return@map svc
             val newChars = svc.characteristics.map { c ->
                 if (c.uuid != btChar.uuid) return@map c
+                val valBytes = value.copyOf()
                 c.copy(
-                    value = value.copyOf(),
+                    value = valBytes,
+                    decodedValue = BleGattDecoder.decodeValue(c.uuid, valBytes),
                     lastError = if (status == BluetoothGatt.GATT_SUCCESS) null else "$source error $status"
                 )
             }

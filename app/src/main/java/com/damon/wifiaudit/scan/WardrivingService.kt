@@ -106,6 +106,10 @@ class WardrivingService : Service() {
             }
         )
         bleDeviceMap[info.macAddress] = info
+        if (bleDeviceMap.size > 500) {
+            val now = System.currentTimeMillis()
+            bleDeviceMap.entries.removeIf { now - it.value.lastSeenMillis > 120_000 }
+        }
         ScanStatusRepository.updateBleDevices(bleDeviceMap.values.toList())
     }
 
@@ -219,7 +223,16 @@ class WardrivingService : Service() {
             while (isActive) {
                 delay(15_000L)
                 val snapshot = ScanStatusRepository.snapshot.value
-                val loc = currentUsableLocation() ?: continue
+                val loc = currentUsableLocation()
+                if (loc == null) {
+                    // Evict stale devices from memory buffer when GPS fix is missing
+                    val now = System.currentTimeMillis()
+                    if (bleDeviceMap.size > 200) {
+                        bleDeviceMap.entries.removeIf { now - it.value.lastSeenMillis > 120_000 }
+                        ScanStatusRepository.updateBleDevices(bleDeviceMap.values.toList())
+                    }
+                    continue
+                }
                 if (snapshot.wifiResults.isEmpty() && snapshot.bleDevices.isEmpty()) continue
                 if (currentSessionId < 0) continue
 

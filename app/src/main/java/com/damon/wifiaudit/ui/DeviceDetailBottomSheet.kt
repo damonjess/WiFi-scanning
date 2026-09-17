@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.damon.wifiaudit.scan.ArpCacheReader
 import com.damon.wifiaudit.scan.NetworkViewModel
 import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 
@@ -39,19 +40,32 @@ fun DeviceDetailBottomSheet(
         ) {
             // Header
             Text(
-                text = device.hostname ?: device.ip,
+                text = device.deviceName.ifBlank { device.hostname ?: device.ip },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = "IP: ${device.ip}",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
             )
-            if (device.mac != null) {
+            val macDisplay = when {
+                device.mac != null -> "MAC: ${device.mac}"
+                !ArpCacheReader.isArpSupported() -> "MAC: Restricted (Android 10+ OS Privacy)"
+                else -> "MAC: Resolving ARP..."
+            }
+            Text(
+                text = macDisplay,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium
+            )
+            if (device.vendor != null) {
                 Text(
-                    text = "MAC: ${device.mac}",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "Vendor: ${device.vendor}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Medium
                 )
             }
 

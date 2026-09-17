@@ -1,9 +1,15 @@
 package com.damon.wifiaudit.scan
 
 import android.content.Context
+import android.util.Log
 import androidx.work.*
+import com.damon.wifiaudit.data.ApiQueueDao
+import com.damon.wifiaudit.data.ApiQueueItem
 import com.damon.wifiaudit.data.AppDatabase
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.TimeUnit
 
 class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -15,12 +21,11 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
         if (items.isEmpty()) return Result.success()
 
-        android.util.Log.i("UploadWorker", "Processing ${items.size} queued items")
+        Log.i("UploadWorker", "Processing ${items.size} queued items")
 
         for (item in items) {
             try {
-                // Simulate network upload
-                val success = simulateUpload(item.payload)
+                val success = uploadPayload(applicationContext, item.payload)
                 if (success) {
                     queue.delete(item.id)
                 } else {
@@ -34,19 +39,41 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         return if (queue.getPendingItems().isNotEmpty()) Result.retry() else Result.success()
     }
 
-    private suspend fun simulateUpload(payload: String): Boolean {
-        // Mocking a successful upload
-        delay(500)
-        android.util.Log.d("UploadWorker", "Successfully uploaded: ${payload.take(50)}...")
-        return true
+    private suspend fun uploadPayload(context: Context, payload: String): Boolean = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("wifi_audit_settings", Context.MODE_PRIVATE)
+        val serverUrlStr = prefs.getString("upload_server_url", "https://httpbin.org/post") ?: "https://httpbin.org/post"
+
+        try {
+            val url = URL(serverUrlStr)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            connection.setRequestProperty("User-Agent", "WiFiAudit-Android/1.0")
+
+            connection.outputStream.use { os ->
+                val input = payload.toByteArray(Charsets.UTF_8)
+                os.write(input, 0, input.size)
+            }
+
+            val responseCode = connection.responseCode
+            Log.d("UploadWorker", "Uploaded payload (${payload.length} bytes) to $serverUrlStr -> Response $responseCode")
+            connection.disconnect()
+            responseCode in 200..299
+        } catch (e: Exception) {
+            Log.e("UploadWorker", "Upload failed to $serverUrlStr: ${e.message}")
+            false
+        }
     }
 
-    private suspend fun handleFailure(queue: com.damon.wifiaudit.data.ApiQueueDao, item: com.damon.wifiaudit.data.ApiQueueItem) {
+    private suspend fun handleFailure(queue: ApiQueueDao, item: ApiQueueItem) {
         if (item.retryCount < 3) {
             queue.update(item.copy(retryCount = item.retryCount + 1))
         } else {
             queue.markProcessed(item.id)
-            android.util.Log.e("UploadWorker", "Giving up on item ${item.id} after 3 retries")
+            Log.e("UploadWorker", "Giving up on item ${item.id} after 3 retries")
         }
     }
 

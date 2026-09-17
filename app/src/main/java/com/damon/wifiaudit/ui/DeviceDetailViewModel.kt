@@ -18,6 +18,7 @@ import com.damon.wifiaudit.data.entity.RssiHeatmapPoint
 import com.damon.wifiaudit.scan.ScanStatusRepository
 import com.damon.wifiaudit.util.MacOuiExtractor
 import com.damon.wifiaudit.vendor.OuiVendorLookup
+import com.damon.wifiaudit.watchdog.SurveillanceDeviceWatchdog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -105,6 +106,7 @@ class DeviceDetailViewModel(
             isConnectable = parsed.isConnectable,
             txPower = parsed.txPowerLevel ?: _state.value.txPower
         )
+        updateClassification()
     }
 
     private fun observeHeatmapPoints() {
@@ -218,9 +220,39 @@ class DeviceDetailViewModel(
                     lastSeen = list.maxOfOrNull { it.timestamp }
                 )
             }
+            updateClassification()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun updateClassification() {
+        val st = _state.value
+        val name = st.name
+        val vendor = st.vendor
+        val beaconType = _decodedBeacon.value?.type
+        val encryption = st.encryption
+
+        val watchdogMatch = if (type == "BLE") {
+            SurveillanceDeviceWatchdog.classifyBle(name, vendor)
+        } else {
+            SurveillanceDeviceWatchdog.classifyWifi(name, vendor)
+        }
+
+        val result = when {
+            watchdogMatch != null -> watchdogMatch.category.label
+            !beaconType.isNullOrBlank() -> beaconType
+            vendor?.contains("Espressif", ignoreCase = true) == true || vendor?.contains("Raspberry", ignoreCase = true) == true -> "IoT / Dev Hardware"
+            vendor?.contains("Ring", ignoreCase = true) == true || vendor?.contains("Wyze", ignoreCase = true) == true || vendor?.contains("Arlo", ignoreCase = true) == true -> "Security Camera"
+            vendor?.contains("Apple", ignoreCase = true) == true || vendor?.contains("Tile", ignoreCase = true) == true || vendor?.contains("Samsung", ignoreCase = true) == true -> "Tracker / Smart Tag"
+            vendor?.contains("Sonos", ignoreCase = true) == true || vendor?.contains("Roku", ignoreCase = true) == true || vendor?.contains("Philips", ignoreCase = true) == true -> "Smart Home Media"
+            vendor?.contains("TP-Link", ignoreCase = true) == true || vendor?.contains("Netgear", ignoreCase = true) == true || vendor?.contains("Cisco", ignoreCase = true) == true || vendor?.contains("Ubiquiti", ignoreCase = true) == true -> "Network Equipment"
+            type == "WIFI" && encryption.isNotBlank() -> if (encryption == "OPEN") "Open Wi-Fi AP" else "$encryption Wi-Fi"
+            type == "BLE" -> "BLE Device"
+            else -> "Network Device"
+        }
+
+        _classification.value = result
     }
 
     @SuppressLint("MissingPermission")

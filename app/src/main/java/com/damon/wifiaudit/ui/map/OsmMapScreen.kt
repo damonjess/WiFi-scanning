@@ -218,7 +218,7 @@ private fun updateOverlays(
     bleVisible: Boolean,
     onPointSelected: (RssiHeatmapPoint) -> Unit
 ) {
-    map.overlays.removeAll(map.overlays.filterIsInstance<RssiOverlay>())
+    map.overlays.removeAll(map.overlays.filterIsInstance<RssiBatchOverlay>())
     map.overlays.removeAll(map.overlays.filterIsInstance<Polyline>())
 
     val visible = playback?.let { idx -> allPoints.take(idx + 1) } ?: allPoints
@@ -236,7 +236,9 @@ private fun updateOverlays(
         valid.averageValidGeoPoint()?.let(map.controller::setCenter)
     }
 
-    // Group by MAC to draw lines and dots
+    val displayPoints = mutableListOf<RssiHeatmapPoint>()
+
+    // Group by MAC to draw lines
     val byMac = valid.groupBy { it.macAddress }
 
     byMac.forEach { (mac, pts) ->
@@ -244,6 +246,8 @@ private fun updateOverlays(
         
         if (isActuallyWifi && !wifiVisible) return@forEach
         if (!isActuallyWifi && !bleVisible) return@forEach
+
+        displayPoints.addAll(pts)
 
         // Draw path line
         if (pts.size > 1) {
@@ -255,12 +259,11 @@ private fun updateOverlays(
             }
             map.overlays.add(line)
         }
+    }
 
-        // Draw RSSI dots
-        pts.forEach { pt ->
-            val overlay = RssiOverlay(pt, map, onPointSelected)
-            map.overlays.add(overlay)
-        }
+    if (displayPoints.isNotEmpty()) {
+        val cappedPoints = if (displayPoints.size > 2000) displayPoints.takeLast(2000) else displayPoints
+        map.overlays.add(RssiBatchOverlay(cappedPoints, onPointSelected))
     }
 
     map.invalidate()
@@ -312,10 +315,9 @@ private class FocusedScanOverlay(
     }
 }
 
-// --- Custom RSSI Dot Overlay ---
-private class RssiOverlay(
-    private val point: RssiHeatmapPoint,
-    private val mapView: MapView,
+// --- Efficient Single Batch Overlay for All RSSI Heatmap Dots ---
+private class RssiBatchOverlay(
+    private val points: List<RssiHeatmapPoint>,
     private val onTap: (RssiHeatmapPoint) -> Unit
 ) : Overlay() {
 
@@ -327,42 +329,55 @@ private class RssiOverlay(
 
     override fun draw(c: Canvas, osmv: MapView, shadow: Boolean) {
         if (shadow) return
-        val geo = GeoPoint(point.latitude!!, point.longitude!!)
         val proj = osmv.projection
-        val screen = proj.toPixels(geo, null) ?: return
+        val tempGeo = GeoPoint(0.0, 0.0)
 
-        val baseColor = when {
-            point.rssi >= -50 -> Color(0xFF00E676)
-            point.rssi >= -70 -> Color(0xFFFFEA00)
-            else -> Color(0xFFFF3D00)
+        for (point in points) {
+            val lat = point.latitude ?: continue
+            val lon = point.longitude ?: continue
+            tempGeo.setCoords(lat, lon)
+            val screen = proj.toPixels(tempGeo, null) ?: continue
+            val x = screen.x.toFloat()
+            val y = screen.y.toFloat()
+
+            val baseColor = when {
+                point.rssi >= -50 -> Color(0xFF00E676)
+                point.rssi >= -70 -> Color(0xFFFFEA00)
+                else -> Color(0xFFFF3D00)
+            }
+
+            // Glow
+            paint.color = baseColor.copy(alpha = 0.25f).toArgb()
+            c.drawCircle(x, y, 24f, paint)
+
+            // Core
+            paint.color = baseColor.copy(alpha = 0.9f).toArgb()
+            c.drawCircle(x, y, 8f, paint)
+
+            // White center
+            paint.color = Color.White.copy(alpha = 0.8f).toArgb()
+            c.drawCircle(x, y, 3f, paint)
+
+            // Selection ring
+            strokePaint.color = baseColor.toArgb()
+            c.drawCircle(x, y, 12f, strokePaint)
         }
-
-        // Glow
-        paint.color = baseColor.copy(alpha = 0.25f).toArgb()
-        c.drawCircle(screen.x.toFloat(), screen.y.toFloat(), 24f, paint)
-
-        // Core
-        paint.color = baseColor.copy(alpha = 0.9f).toArgb()
-        c.drawCircle(screen.x.toFloat(), screen.y.toFloat(), 8f, paint)
-
-        // White center
-        paint.color = Color.White.copy(alpha = 0.8f).toArgb()
-        c.drawCircle(screen.x.toFloat(), screen.y.toFloat(), 3f, paint)
-
-        // Selection ring
-        strokePaint.color = baseColor.toArgb()
-        c.drawCircle(screen.x.toFloat(), screen.y.toFloat(), 12f, strokePaint)
     }
 
     override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
-        val geo = GeoPoint(point.latitude!!, point.longitude!!)
         val proj = mapView.projection
-        val screen = proj.toPixels(geo, null) ?: return false
-        val dx = e.x - screen.x
-        val dy = e.y - screen.y
-        if (dx * dx + dy * dy < 900) { // 30px hit radius
-            onTap(point)
-            return true
+        val tempGeo = GeoPoint(0.0, 0.0)
+        for (point in points) {
+            val lat = point.latitude ?: continue
+            val lon = point.longitude ?: continue
+            tempGeo.setCoords(lat, lon)
+            val screen = proj.toPixels(tempGeo, null) ?: continue
+            val dx = e.x - screen.x
+            val dy = e.y - screen.y
+            if (dx * dx + dy * dy < 900) { // 30px hit radius
+                onTap(point)
+                return true
+            }
         }
         return false
     }

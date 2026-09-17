@@ -137,6 +137,35 @@ class NbnsDiscoveryHelper {
         }
     }
 
+    /**
+     * Sends a direct NetBIOS Node Status query to a specific IP address.
+     * Devices responding to NetBIOS return their hardware MAC address in the packet payload.
+     */
+    suspend fun queryHost(ip: String, timeoutMs: Int = 1000): NbnsDevice? = withContext(Dispatchers.IO) {
+        val socket = try {
+            DatagramSocket().apply { soTimeout = timeoutMs }
+        } catch (_: Exception) { return@withContext null }
+
+        try {
+            val requestBytes = buildNbstatRequest()
+            val targetAddr = InetAddress.getByName(ip)
+            val requestPacket = DatagramPacket(requestBytes, requestBytes.size, targetAddr, nbnsPort)
+            socket.send(requestPacket)
+
+            val buffer = ByteArray(1024)
+            val response = DatagramPacket(buffer, buffer.size)
+            socket.receive(response)
+            val data = response.data
+            val length = response.length
+            val parsed = parseNbstatResponse(data, length) ?: return@withContext null
+            NbnsDevice(ip = ip, netbiosName = parsed.name, macAddress = parsed.mac)
+        } catch (_: Exception) {
+            null
+        } finally {
+            socket.close()
+        }
+    }
+
     private data class ParsedNbns(val name: String?, val mac: String?)
 
     private fun parseNbstatResponse(data: ByteArray, length: Int): ParsedNbns? {

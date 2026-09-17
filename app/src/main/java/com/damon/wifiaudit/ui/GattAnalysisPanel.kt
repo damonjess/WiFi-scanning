@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.damon.wifiaudit.ble.BleGattDecoder
 import com.damon.wifiaudit.ble.BleUuidResolver
 import com.damon.wifiaudit.ble.GattUuidResolver
 import com.damon.wifiaudit.ble.LightGattManager
@@ -154,6 +155,38 @@ fun GattAnalysisPanel(
                             color = TextMuted
                         )
                     } else {
+                        val fingerprint = remember(state.services) { BleGattDecoder.identifyVendorFingerprint(state.services) }
+                        fingerprint?.let { fp ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF8C9EFF).copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, Color(0xFF8C9EFF).copy(alpha = 0.3f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(fp.icon, fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Fingerprint: ${fp.vendorName}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = fp.description,
+                                            fontSize = 11.sp,
+                                            color = TextMuted
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         if (!state.isGattLive) {
                             Text(
                                 "Saved service table. Refresh to reconnect before reading, writing, or enabling notifications.",
@@ -365,6 +398,43 @@ private fun InteractiveCharacteristicRow(
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.padding(top = 1.dp)
                 )
+
+                characteristic.decodedValue?.let { decoded ->
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF81C784).copy(alpha = 0.15f),
+                        modifier = Modifier.padding(top = 3.dp)
+                    ) {
+                        Text(
+                            text = "Value: $decoded",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF81C784),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                characteristic.securityFlags.forEach { flag ->
+                    val (bg, fg) = when (flag.severity) {
+                        BleGattDecoder.SecurityFlag.Severity.CRITICAL -> Color(0xFFE57373).copy(alpha = 0.2f) to Color(0xFFE57373)
+                        BleGattDecoder.SecurityFlag.Severity.WARNING -> Color(0xFFFFB74D).copy(alpha = 0.2f) to Color(0xFFFFB74D)
+                        else -> Color(0xFF8C9EFF).copy(alpha = 0.2f) to Color(0xFF8C9EFF)
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = bg,
+                        modifier = Modifier.padding(top = 3.dp)
+                    ) {
+                        Text(
+                            text = "⚠️ ${flag.title}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = fg,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             }
 
             // Property badges
@@ -437,6 +507,37 @@ private fun InteractiveCharacteristicRow(
                                 )
                             }
                         )
+                    }
+                }
+
+                if (characteristic.descriptors.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Descriptors (${characteristic.descriptors.size}):",
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        fontWeight = FontWeight.Bold
+                    )
+                    characteristic.descriptors.forEach { desc ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "  ▫ ${desc.name ?: "Descriptor"}",
+                                fontSize = 11.sp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                            Text(
+                                text = BleUuidResolver.fullShortForm(desc.uuid),
+                                fontSize = 10.sp,
+                                color = TextMuted,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
                 }
             }
