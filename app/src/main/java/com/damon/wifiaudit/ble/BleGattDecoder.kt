@@ -1,0 +1,211 @@
+package com.damon.wifiaudit.ble
+
+import java.util.Locale
+import java.util.UUID
+
+object BleGattDecoder {
+
+    data class SecurityFlag(
+        val title: String,
+        val severity: Severity,
+        val description: String
+    ) {
+        enum class Severity { INFO, WARNING, CRITICAL }
+    }
+
+    data class VendorFingerprint(
+        val vendorName: String,
+        val icon: String,
+        val description: String
+    )
+
+    /**
+     * Attempts to decode raw byte arrays from standard BLE characteristics into
+     * human-readable strings.
+     */
+    fun decodeValue(uuid: UUID, bytes: ByteArray?): String? {
+        if (bytes == null || bytes.isEmpty()) return null
+        val short = BleUuidResolver.shortUuid(uuid)
+
+        return when (short) {
+            "2A19" -> { // Battery Level
+                val level = bytes[0].toInt() and 0xFF
+                "$level%"
+            }
+            "2A00", "2A24", "2A25", "2A26", "2A27", "2A28", "2A29" -> {
+                // Device Name, Model Number, Serial Number, Firmware, Hardware, Software, Manufacturer
+                try {
+                    val str = String(bytes, Charsets.UTF_8).trim { it <= ' ' || it.code == 0 }
+                    if (str.isNotBlank()) str else null
+                } catch (_: Exception) { null }
+            }
+            "2A01" -> { // Appearance
+                if (bytes.size >= 2) {
+                    val raw = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
+                    decodeAppearance(raw)
+                } else null
+            }
+            "2A1C", "2A6E" -> { // Temperature
+                decodeTemperature(bytes)
+            }
+            "2A37" -> { // Heart Rate Measurement
+                decodeHeartRate(bytes)
+            }
+            "2A08" -> { // Date Time
+                decodeDateTime(bytes)
+            }
+            else -> {
+                // Fallback: UTF-8 decoding if all characters are printable ASCII
+                if (bytes.all { it in 32..126 || it == 10.toByte() || it == 13.toByte() }) {
+                    val str = String(bytes, Charsets.UTF_8).trim()
+                    if (str.length >= 2 && str.any { it.isLetterOrDigit() }) str else null
+                } else null
+            }
+        }
+    }
+
+    private fun decodeAppearance(value: Int): String {
+        val category = value shr 6
+        return when (category) {
+            0 -> "Generic / Unknown (0x${value.toString(16).uppercase()})"
+            1 -> "Phone"
+            2 -> "Computer"
+            3 -> "Watch"
+            4 -> "Clock"
+            5 -> "Display"
+            6 -> "Remote Control"
+            7 -> "Eye-glasses"
+            8 -> "Tag"
+            9 -> "Keyring"
+            10 -> "Media Player"
+            11 -> "Barcode Scanner"
+            12 -> "Thermometer"
+            13 -> "Heart Rate Sensor"
+            14 -> "Blood Pressure"
+            15 -> "Human Interface Device (HID)"
+            16 -> "Glucose Monitor"
+            17 -> "Running Speed & Cadence"
+            18 -> "Pulse Oximeter"
+            19 -> "Weight Scale"
+            else -> "Category $category (0x${value.toString(16).uppercase()})"
+        }
+    }
+
+    private fun decodeTemperature(bytes: ByteArray): String? {
+        if (bytes.size < 4) return null
+        return try {
+            val flags = bytes[0].toInt() and 0xFF
+            val isFahrenheit = (flags and 0x01) != 0
+            val mantissa = (bytes[1].toInt() and 0xFF) or
+                    ((bytes[2].toInt() and 0xFF) shl 8) or
+                    ((bytes[3].toInt() and 0xFF) shl 16)
+            val signedMantissa = if ((mantissa and 0x800000) != 0) mantissa or -0x1000000 else mantissa
+            val exponent = if (bytes.size >= 5) bytes[4].toInt() else 0
+            val temp = signedMantissa * Math.pow(10.0, exponent.toDouble())
+            val unit = if (isFahrenheit) "°F" else "°C"
+            String.format(Locale.US, "%.1f %s", temp, unit)
+        } catch (_: Exception) { null }
+    }
+
+    private fun decodeHeartRate(bytes: ByteArray): String? {
+        if (bytes.isEmpty()) return null
+        val flags = bytes[0].toInt() and 0xFF
+        val is16Bit = (flags and 0x01) != 0
+        val bpm = if (is16Bit && bytes.size >= 3) {
+            (bytes[1].toInt() and 0xFF) or ((bytes[2].toInt() and 0xFF) shl 8)
+        } else if (bytes.size >= 2) {
+            bytes[1].toInt() and 0xFF
+        } else {
+            return null
+        }
+
+        return "$bpm BPM"
+    }
+
+    private fun decodeDateTime(bytes: ByteArray): String? {
+        if (bytes.size < 7) return null
+        val year = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
+        val month = bytes[2].toInt() and 0xFF
+        val day = bytes[3].toInt() and 0xFF
+        val hour = bytes[4].toInt() and 0xFF
+        val min = bytes[5].toInt() and 0xFF
+        val sec = bytes[6].toInt() and 0xFF
+        return String.format(Locale.US, "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, min, sec)
+    }
+
+    /**
+     * Performs automated security analysis on a single GATT characteristic.
+     */
+    fun assessSecurity(charUuid: UUID, serviceUuid: UUID, properties: Int): List<SecurityFlag> {
+        val flags = mutableListOf<SecurityFlag>()
+        val charShort = BleUuidResolver.shortUuid(charUuid)
+        val svcShort = BleUuidResolver.shortUuid(serviceUuid)
+
+        val writable = (properties and 0x08 != 0) || (properties and 0x04 != 0)
+        val readable = (properties and 0x02 != 0)
+
+        if (charShort.contains("DFU", ignoreCase = true) || svcShort == "FE59" || charShort == "8EC90001") {
+            flags.add(
+                SecurityFlag(
+                    title = "DFU Bootloader Endpoint",
+                    severity = SecurityFlag.Severity.CRITICAL,
+                    description = "Exposes direct Device Firmware Update / bootloader access."
+                )
+            )
+        }
+
+        if (svcShort == "1812") {
+            flags.add(
+                SecurityFlag(
+                    title = "HID Input Endpoint",
+                    severity = SecurityFlag.Severity.WARNING,
+                    description = "Human Interface Device protocol — potential wireless keylogger or keystroke injector."
+                )
+            )
+        }
+
+        if (writable && (properties and 0x04 != 0)) {
+            flags.add(
+                SecurityFlag(
+                    title = "Unauthenticated Write",
+                    severity = SecurityFlag.Severity.WARNING,
+                    description = "Accepts raw write commands without requiring connection response or pairing confirmation."
+                )
+            )
+        }
+
+        if (readable && (charShort == "2A25" || charShort == "2A23")) {
+            flags.add(
+                SecurityFlag(
+                    title = "Sensitive Asset Identifier",
+                    severity = SecurityFlag.Severity.INFO,
+                    description = "Broadcasts unencrypted serial/hardware ID for tracking or fingerprinting."
+                )
+            )
+        }
+
+        return flags
+    }
+
+    /**
+     * Identifies vendor hardware/ecosystem fingerprints from discovered GATT services.
+     */
+    fun identifyVendorFingerprint(services: List<LightGattManager.BleService>): VendorFingerprint? {
+        val uuids = services.map { BleUuidResolver.shortUuid(it.uuid) }.toSet()
+
+        return when {
+            uuids.contains("FEF3") -> VendorFingerprint("Google Fast Pair", "📱", "Supports Google Fast Pair automated BLE proximity pairing.")
+            uuids.contains("FD43") || uuids.contains("FD44") || uuids.contains("FD4D") -> VendorFingerprint("Apple HomeKit", "🏠", "Apple HomeKit smart home accessory protocol.")
+            uuids.contains("FEED") -> VendorFingerprint("Tile Tracker", "🔷", "Tile asset tracker beacon service.")
+            uuids.contains("FE59") -> VendorFingerprint("Nordic DFU Bootloader", "🔄", "Nordic Semiconductor Device Firmware Update active.")
+            uuids.contains("FEE0") -> VendorFingerprint("Tuya Smart IoT", "⚡", "Tuya smart home hardware module.")
+            uuids.contains("FE68") -> VendorFingerprint("Espressif System", "🛠️", "ESP32/ESP8266 microcontroller service.")
+            uuids.contains("FEF1") -> VendorFingerprint("Tesla Key System", "🚗", "Tesla vehicle digital key BLE service.")
+            uuids.contains("FE55") || uuids.contains("FE2E") -> VendorFingerprint("Bose Audio", "🎧", "Bose wireless audio control protocol.")
+            uuids.contains("FE4B") -> VendorFingerprint("Fitbit", "⌚", "Fitbit activity tracking service.")
+            uuids.contains("FE0F") -> VendorFingerprint("Philips Hue", "💡", "Philips Hue smart lighting BLE mesh service.")
+            uuids.contains("FED5") -> VendorFingerprint("SwitchBot", "🤖", "SwitchBot automation controller service.")
+            else -> null
+        }
+    }
+}
