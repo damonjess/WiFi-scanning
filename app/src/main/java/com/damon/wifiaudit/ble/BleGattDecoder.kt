@@ -233,17 +233,6 @@ object BleGattDecoder {
         return "$bpm BPM"
     }
 
-    private fun decodeDateTime(bytes: ByteArray): String? {
-        if (bytes.size < 7) return null
-        val year = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
-        val month = bytes[2].toInt() and 0xFF
-        val day = bytes[3].toInt() and 0xFF
-        val hour = bytes[4].toInt() and 0xFF
-        val min = bytes[5].toInt() and 0xFF
-        val sec = bytes[6].toInt() and 0xFF
-        return String.format(Locale.US, "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, min, sec)
-    }
-
     /**
      * Performs automated security analysis on a single GATT characteristic.
      */
