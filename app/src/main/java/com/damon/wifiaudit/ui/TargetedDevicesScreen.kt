@@ -35,11 +35,10 @@ fun TargetedDevicesScreen(
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     
     val currentCategory = tabs[selectedTabIndex].second
-    val devices by if (currentCategory == "ALL") {
-        dao.getAll().collectAsState(initial = emptyList())
-    } else {
-        dao.getByCategory(currentCategory).collectAsState(initial = emptyList())
-    }
+    val devices by remember(currentCategory) {
+        if (currentCategory == "ALL") dao.getAll()
+        else dao.getByCategory(currentCategory)
+    }.collectAsState(initial = emptyList())
 
     Column(
         modifier = Modifier
