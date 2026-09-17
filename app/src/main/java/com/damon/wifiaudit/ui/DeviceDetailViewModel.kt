@@ -37,7 +37,7 @@ class DeviceDetailViewModel(
 
     val db = AppDatabase.getInstance(app)
 
-    // Classification (placeholder for future implementation)
+    // Classification — implemented via SurveillanceDeviceWatchdog, vendor rules, and encryption analysis
     private val _classification = MutableStateFlow<String?>(null)
     val classification: StateFlow<String?> = _classification.asStateFlow()
 
