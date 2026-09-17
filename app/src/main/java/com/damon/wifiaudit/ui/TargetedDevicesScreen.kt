@@ -25,6 +25,7 @@ fun TargetedDevicesScreen(
     val dao = remember { AppDatabase.getInstance(context).targetDeviceDao() }
     
     val tabs = listOf(
+        "All" to "ALL",
         "Cameras" to "CAMERA", 
         "Trackers" to "TRACKER", 
         "Smart Home" to "SMART_HOME", 
@@ -34,7 +35,11 @@ fun TargetedDevicesScreen(
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     
     val currentCategory = tabs[selectedTabIndex].second
-    val devices by dao.getByCategory(currentCategory).collectAsState(initial = emptyList())
+    val devices by if (currentCategory == "ALL") {
+        dao.getAll().collectAsState(initial = emptyList())
+    } else {
+        dao.getByCategory(currentCategory).collectAsState(initial = emptyList())
+    }
 
     Column(
         modifier = Modifier

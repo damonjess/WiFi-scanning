@@ -296,21 +296,22 @@ class DiscoveryCoordinator(private val context: Context) {
                     changed = true
 
                     val hostname = dev.hostname ?: ip
-                    if (SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
+                    val targetCategory = classifyLanTarget(hostname, vendor, dev.openPorts)
+                    if (targetCategory != null) {
                         scope.launch {
                             try {
                                 val db = AppDatabase.getInstance(context)
                                 val repository = WardrivingRepository(db)
                                 repository.processAndSaveTargetDevice(
                                     macAddress = normalizedMac.uppercase(),
-                                    deviceName = hostname.takeIf { it != ip } ?: vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
-                                    category = "CAMERA",
+                                    deviceName = hostname.takeIf { it != ip } ?: vendor?.let { "$it Device" } ?: "$targetCategory Device",
+                                    category = targetCategory,
                                     rssi = -50,
                                     latitude = null,
                                     longitude = null
                                 )
                             } catch (e: Exception) {
-                                Log.e(tag, "Failed to save Ring camera from ARP enrichment", e)
+                                Log.e(tag, "Failed to save target from ARP enrichment", e)
                             }
                         }
                     }
@@ -351,20 +352,21 @@ class DiscoveryCoordinator(private val context: Context) {
 
                 scope.launch {
                     val hostname = ip
-                    if (SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
+                    val targetCategory = classifyLanTarget(hostname, vendor, emptyList())
+                    if (targetCategory != null) {
                         try {
                             val db = AppDatabase.getInstance(context)
                             val repository = WardrivingRepository(db)
                             repository.processAndSaveTargetDevice(
                                 macAddress = normalizedMac.uppercase(),
-                                deviceName = vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
-                                category = "CAMERA",
+                                deviceName = vendor?.let { "$it Device" } ?: "$targetCategory Device",
+                                category = targetCategory,
                                 rssi = -50,
                                 latitude = null,
                                 longitude = null
                             )
                         } catch (e: Exception) {
-                            Log.e(tag, "Failed to save Ring camera from ARP discovery", e)
+                            Log.e(tag, "Failed to save target from ARP discovery", e)
                         }
                     }
                 }
@@ -441,20 +443,26 @@ class DiscoveryCoordinator(private val context: Context) {
             val vendor = merged.vendor ?: OuiVendorLookup.lookup(mac)
             val hostname = activeName ?: merged.ip
 
-            if (mac != "Unknown" && SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
-                try {
-                    val db = AppDatabase.getInstance(context)
-                    val repository = WardrivingRepository(db)
-                    repository.processAndSaveTargetDevice(
-                        macAddress = mac.uppercase(),
-                        deviceName = hostname.takeIf { it != merged.ip } ?: vendor?.let { "$it Ring Device" } ?: "Ring Network Camera",
-                        category = "CAMERA",
-                        rssi = -50,
-                        latitude = null,
-                        longitude = null
-                    )
-                } catch (e: Exception) {
-                    Log.e(tag, "Failed to save Ring camera from LAN scan", e)
+            // Classify and save all detected target devices (not just Ring)
+            if (mac != "Unknown") {
+                val targetCategory = classifyLanTarget(hostname, vendor, merged.openPorts)
+                if (targetCategory != null) {
+                    scope.launch {
+                        try {
+                            val db = AppDatabase.getInstance(context)
+                            val repository = WardrivingRepository(db)
+                            repository.processAndSaveTargetDevice(
+                                macAddress = mac.uppercase(),
+                                deviceName = hostname.takeIf { it != merged.ip } ?: vendor?.let { "$it Device" } ?: "$targetCategory Device",
+                                category = targetCategory,
+                                rssi = -50,
+                                latitude = null,
+                                longitude = null
+                            )
+                        } catch (e: Exception) {
+                            Log.e(tag, "Failed to save target device from LAN scan", e)
+                        }
+                    }
                 }
             }
             
@@ -477,6 +485,61 @@ class DiscoveryCoordinator(private val context: Context) {
                 device = networkDevice
             ))
         }
+    }
+
+    // ============ TARGET CLASSIFICATION ============
+
+    /**
+     * Classifies a LAN device into a target category based on vendor, hostname,
+     * and open ports. Returns null if the device doesn't match any known pattern.
+     */
+    private fun classifyLanTarget(hostname: String, vendor: String?, openPorts: List<Int>): String? {
+        val v = vendor?.lowercase() ?: ""
+        val h = hostname.lowercase()
+
+        // Ring cameras and doorbells
+        if (SurveillanceDeviceWatchdog.isRingDevice(hostname, vendor, hostname)) {
+            return "CAMERA"
+        }
+
+        // Camera vendors (Hikvision, Dahua, Reolink, Foscam, Amcrest, Arlo, Wyze, etc.)
+        val cameraVendorKeywords = listOf(
+            "hikvision", "dahua", "reolink", "foscam", "amcrest", "arlo",
+            "wyze", "blink", "eufy", "swann", "lorex", "annke", "zosi",
+            "vivotek", "axis", "geovision", "zmodo", "wansview", "tenvis",
+            "dericam", "sunba", "pelco", "avigilon", "mobotix", "arecont",
+            "sricam", "imou", "ezviz", "uniview"
+        )
+        if (cameraVendorKeywords.any { v.contains(it) || h.contains(it) }) {
+            return "CAMERA"
+        }
+
+        // Camera port signatures (RTSP, ONVIF)
+        if (openPorts.contains(554) || openPorts.contains(8554) || openPorts.contains(3702)) {
+            return "CAMERA"
+        }
+
+        // Smart home / IoT vendors
+        val smartHomeKeywords = listOf(
+            "tuya", "espressif", "shenzhen", "broadlink", "sonoff",
+            "tp-link", "tapo", "kasa", "d-link", "belkin", "wemo",
+            "ikea", "tradfri", "lifx", "nanoleaf", "philips", "hue",
+            "govee", "switchbot", "ecobee", "nest", "schlage", "yale",
+            "august", "nuki", "myq", "chamberlain"
+        )
+        if (smartHomeKeywords.any { v.contains(it) || h.contains(it) }) {
+            // Distinguish IoT dev boards from smart home products
+            val iotKeywords = listOf("espressif", "shenzhen", "esp32", "esp8266", "raspberry")
+            return if (iotKeywords.any { v.contains(it) || h.contains(it) }) "IOT" else "SMART_HOME"
+        }
+
+        // Automotive
+        val autoKeywords = listOf("tesla", "bmw", "mercedes", "audi", "volkswagen", "ford", "porsche", "nissan")
+        if (autoKeywords.any { v.contains(it) || h.contains(it) }) {
+            return "AUTO"
+        }
+
+        return null
     }
 
     // ============ SECURITY ASSESSMENT ============

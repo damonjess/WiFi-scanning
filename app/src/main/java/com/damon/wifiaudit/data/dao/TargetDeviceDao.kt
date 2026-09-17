@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TargetDeviceDao {
+    @Query("SELECT * FROM targeted_devices ORDER BY lastSeen DESC")
+    fun getAll(): Flow<List<TargetDevice>>
+
     @Query("SELECT * FROM targeted_devices WHERE category = :category ORDER BY lastSeen DESC")
     fun getByCategory(category: String): Flow<List<TargetDevice>>
 
