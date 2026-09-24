@@ -21,4 +21,7 @@ class WardrivingStatusViewModel(application: Application) : AndroidViewModel(app
 
     val isServiceRunning: StateFlow<Boolean> = ScanStatusRepository.isServiceRunning
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val serviceStartTimeMillis: StateFlow<Long> = ScanStatusRepository.serviceStartTimeMillis
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 }

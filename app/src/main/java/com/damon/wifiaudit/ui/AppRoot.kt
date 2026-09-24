@@ -1,5 +1,10 @@
 package com.damon.wifiaudit.ui
 
+import android.app.KeyguardManager
+import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Security
@@ -20,16 +26,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.damon.wifiaudit.map.MapViewModel
 import com.damon.wifiaudit.ui.map.MapTabScreen
 import com.damon.wifiaudit.ui.map.OsmMapScreen
 import com.damon.wifiaudit.ui.map.ScanLocationTarget
 import com.damon.wifiaudit.ui.rules.RulesScreen
-import com.damon.wifiaudit.util.LockManager
+import com.damon.wifiaudit.util.SecurityGateManager
 import com.damon.wifiaudit.ui.theme.CyanAccent
 import com.damon.wifiaudit.ui.theme.DarkBackground
 import com.damon.wifiaudit.ui.theme.TextMuted
@@ -40,22 +49,27 @@ fun AppRoot() {
     var detailTarget by remember { mutableStateOf<Pair<String, String>?>(null) } // (id, "WIFI"|"BLE")
     var mapTarget by remember { mutableStateOf<String?>(null) } // device-wide map route
     var scanLocationTarget by remember { mutableStateOf<ScanLocationTarget?>(null) }
-    val isLocked by LockManager.isLocked.collectAsState()
+    val isLocked by SecurityGateManager.isLocked.collectAsState()
 
     // LOCK SCREEN
     if (isLocked) {
-        LockScreen(onUnlock = { LockManager.unlock() })
+        LockScreen(onUnlock = { SecurityGateManager.unlock() })
         return
     }
 
     // FULL-SCREEN MAP OVERLAY. A history-card selection contributes an exact
-    // coordinate, while the existing detail route continues to show a device’s
+    // coordinate, while the existing detail route continues to show a device's
     // broader sighting history.
     val requestedMapMac = scanLocationTarget?.macAddress ?: mapTarget
     requestedMapMac?.let { mac ->
         val mapVm: MapViewModel = viewModel()
         LaunchedEffect(mac) {
             mapVm.loadPointsForMac(mac)
+        }
+        // System back pops the overlay instead of exiting the app.
+        BackHandler {
+            mapTarget = null
+            scanLocationTarget = null
         }
         OsmMapScreen(
             points = mapVm.osmPoints,
@@ -75,6 +89,7 @@ fun AppRoot() {
 
     // FULL-SCREEN DETAIL OVERLAY
     detailTarget?.let { (mac, type) ->
+        BackHandler { detailTarget = null }
         DeviceDetailScreen(
             macAddress = mac,
             deviceType = type,
@@ -175,6 +190,14 @@ fun AppRoot() {
 
 @Composable
 fun LockScreen(onUnlock: () -> Unit) {
+    val context = LocalContext.current
+    val keyguardManager = remember {
+        context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+    }
+    val deviceSecure = keyguardManager?.isDeviceSecure == true
+    val fragmentActivity = context as? FragmentActivity
+    val canAuthenticate = deviceSecure && fragmentActivity != null
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = DarkBackground
@@ -185,7 +208,7 @@ fun LockScreen(onUnlock: () -> Unit) {
             verticalArrangement = Arrangement.Center
         ) {
             Icon(
-                Icons.Default.Security,
+                Icons.Default.Lock,
                 contentDescription = null,
                 tint = Color(0xFFE57373),
                 modifier = Modifier.size(80.dp)
@@ -204,11 +227,56 @@ fun LockScreen(onUnlock: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp)
             )
             Spacer(modifier = Modifier.height(48.dp))
-            Button(
-                onClick = onUnlock,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8C9EFF))
-            ) {
-                Text("Unlock")
+
+            if (canAuthenticate) {
+                Button(
+                    onClick = {
+                        val prompt = BiometricPrompt(
+                            fragmentActivity,
+                            ContextCompat.getMainExecutor(context),
+                            object : BiometricPrompt.AuthenticationCallback() {
+                                override fun onAuthenticationSucceeded(
+                                    result: BiometricPrompt.AuthenticationResult
+                                ) {
+                                    onUnlock()
+                                }
+                            }
+                        )
+                        val info = BiometricPrompt.PromptInfo.Builder()
+                            .setTitle("Unlock WiFi Audit")
+                            .setSubtitle("Authenticate to dismiss the security lockdown")
+                            // Any enrolled biometric (Class 2 or 3) with PIN/pattern/
+                            // password fallback. NOTE: BIOMETRIC_STRONG and
+                            // BIOMETRIC_WEAK must never be combined — the androidx
+                            // library throws IllegalArgumentException for that pair.
+                            .setAllowedAuthenticators(
+                                BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                            )
+                            .build()
+                        prompt.authenticate(info)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8C9EFF))
+                ) {
+                    Text("Authenticate to Unlock", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                // No device credential enrolled (or no FragmentActivity host):
+                // biometric verification is impossible, so fall back to a plain
+                // unlock with an explicit warning instead of pretending it's secure.
+                Button(
+                    onClick = onUnlock,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8C9EFF))
+                ) {
+                    Text("Unlock")
+                }
+                Text(
+                    "⚠ No screen lock is set — set a PIN or biometric on this " +
+                        "device to make the security-key lock effective.",
+                    fontSize = 12.sp,
+                    color = Color(0xFFFFB74D),
+                    modifier = Modifier.padding(top = 16.dp, start = 24.dp, end = 24.dp)
+                )
             }
         }
     }

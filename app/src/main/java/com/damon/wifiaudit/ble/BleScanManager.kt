@@ -2,7 +2,9 @@ package com.damon.wifiaudit.ble
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanRecord
 import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.os.Build
@@ -14,7 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class BleScanManager(private val context: Context) {
 
     private val bluetoothAdapter: BluetoothAdapter? =
-        (context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
+        (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
     // BLE tracker and spoofing detectors — shared state across scan sessions
     val trackerDetector = BleTrackerDetector()
@@ -49,9 +51,12 @@ class BleScanManager(private val context: Context) {
             val decoded = BeaconDecoder.decode(record)
 
             val txPower = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE }
+            val mac = result.device.address ?: "00:00:00:00:00:00"
+            val now = System.currentTimeMillis()
+            val existing = _devices.value[mac]
 
             val info = BleDeviceInfo(
-                macAddress = result.device.address ?: "00:00:00:00:00:00",
+                macAddress = mac,
                 deviceName = try { record?.deviceName ?: result.device.name } catch (_: SecurityException) { null },
                 rssi = result.rssi,
                 txPowerLevel = txPower,
@@ -61,14 +66,11 @@ class BleScanManager(private val context: Context) {
                 iBeaconUuid = iBeacon?.uuid,
                 beaconType = decoded?.type,
                 beaconPayload = decoded?.summary,
-                lastSeenMillis = System.currentTimeMillis(),
+                firstSeenMillis = existing?.firstSeenMillis ?: now,
+                lastSeenMillis = now,
                 manufacturerFromAdv = parseManufacturerData(record),
                 rawBytes = record?.bytes,
-                isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    result.isConnectable
-                } else {
-                    record?.advertiseFlags?.let { flags -> (flags and 0x02) != 0 } ?: false
-                }
+                isConnectable = result.isConnectable
             )
 
             val updatedMap = _devices.value.toMutableMap().apply {
@@ -100,7 +102,7 @@ class BleScanManager(private val context: Context) {
         }
     }
 
-    private fun parseManufacturerData(record: android.bluetooth.le.ScanRecord?): String? {
+    private fun parseManufacturerData(record: ScanRecord?): String? {
         if (record == null) return null
         val bytes = record.bytes ?: return null
         

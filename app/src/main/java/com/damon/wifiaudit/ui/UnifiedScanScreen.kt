@@ -48,21 +48,18 @@ fun UnifiedScanScreen(
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val bleDevices by bleViewModel.deviceList.collectAsState()
     val serviceRunning by viewModel.isServiceRunning.collectAsStateWithLifecycle()
+    val serviceStartTime by viewModel.serviceStartTimeMillis.collectAsStateWithLifecycle()
 
-    var startTime by remember { mutableStateOf(0L) }
-    var elapsedSeconds by remember { mutableStateOf(0L) }
+    var elapsedSeconds by remember { mutableLongStateOf(0L) }
     var showBleOnly by remember { mutableStateOf(false) }
 
-    LaunchedEffect(serviceRunning) {
-        if (serviceRunning && startTime == 0L) {
-            startTime = System.currentTimeMillis()
-        } else if (!serviceRunning) {
-            startTime = 0L
-            elapsedSeconds = 0L
-        }
-        while (serviceRunning) {
-            elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
+    LaunchedEffect(serviceRunning, serviceStartTime) {
+        while (serviceRunning && serviceStartTime > 0L) {
+            elapsedSeconds = (System.currentTimeMillis() - serviceStartTime) / 1000
             delay(1000)
+        }
+        if (!serviceRunning) {
+            elapsedSeconds = 0L
         }
     }
 
@@ -144,12 +141,12 @@ private fun BleDeviceRow(
     onClick: () -> Unit
 ) {
     val vendor = remember(device.macAddress) { OuiVendorLookup.lookup(device.macAddress) }
-    val lifetime = remember(device.lastSeenMillis) {
-        val mins = ((System.currentTimeMillis() - device.lastSeenMillis) / 60000).toInt()
+    val lifetime = remember(device.firstSeenMillis, device.lastSeenMillis) {
+        val mins = ((device.lastSeenMillis - device.firstSeenMillis) / 60000).toInt()
         if (mins < 1) "< 1 min" else "$mins min"
     }
     val lastUpdate = remember(device.lastSeenMillis) {
-        val secs = ((System.currentTimeMillis() - device.lastSeenMillis) / 1000).toInt()
+        val secs = ((System.currentTimeMillis() - device.lastSeenMillis) / 1000).coerceAtLeast(0).toInt()
         "$secs sec ago"
     }
 
@@ -171,12 +168,20 @@ private fun BleDeviceRow(
                     .border(1.dp, Color(0xFF3A3A45), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text("?", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6E6E8A))
+                Text(
+                    if (device.beaconType != null) "📡" else "📶",
+                    fontSize = 22.sp
+                )
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(device.deviceName ?: "Unknown", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                
+                Text(
+                    device.deviceName ?: "Unknown",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
                 val companyFromAdv = device.manufacturerFromAdv
                 if (companyFromAdv != null) {
                     Text(
@@ -186,15 +191,30 @@ private fun BleDeviceRow(
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 } else if (vendor != null) {
-                    Text(vendor, fontSize = 14.sp, color = TextMuted, modifier = Modifier.padding(top = 2.dp))
+                    Text(
+                        vendor,
+                        fontSize = 14.sp,
+                        color = TextMuted,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
-                
+
+                if (device.beaconType != null) {
+                    Text(
+                        "${device.beaconType}${if (!device.beaconPayload.isNullOrBlank()) ": ${device.beaconPayload}" else ""}",
+                        fontSize = 12.sp,
+                        color = CyanAccent,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(device.macAddress, fontSize = 14.sp, color = Color.White, fontFamily = FontFamily.Monospace)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    StateBadge("RST")
-                }
+                Text(
+                    device.macAddress,
+                    fontSize = 14.sp,
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace
+                )
                 Text(
                     "lifetime: $lifetime | last update: $lastUpdate",
                     fontSize = 12.sp,
@@ -202,6 +222,7 @@ private fun BleDeviceRow(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
+            SignalBadge(device.rssi)
         }
     }
 }

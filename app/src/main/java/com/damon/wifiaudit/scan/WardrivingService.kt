@@ -43,8 +43,10 @@ class WardrivingService : Service() {
     @Volatile private var lastKnownLocation: Location? = null
     private var lastCommittedLocation: Location? = null
     private var lastCommitTimestamp: Long = 0L
-    private val bleDeviceMap = mutableMapOf<String, BleDeviceInfo>()
-    private val alertedDevices = mutableSetOf<String>()
+    // BLE callbacks arrive on binder threads while the commit loop iterates
+    // this map on Dispatchers.IO — must be concurrent to avoid CMEs.
+    private val bleDeviceMap = java.util.concurrent.ConcurrentHashMap<String, BleDeviceInfo>()
+    private val alertedDevices = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     // ---- Wi-Fi ----
     private val wifiReceiver = object : BroadcastReceiver() {
@@ -88,8 +90,12 @@ class WardrivingService : Service() {
                 null
             }
 
+            val mac = result.device.address ?: "00:00:00:00:00:00"
+            val now = System.currentTimeMillis()
+            val existing = bleDeviceMap[mac]
+
             val info = BleDeviceInfo(
-                macAddress = result.device.address ?: "00:00:00:00:00:00",
+                macAddress = mac,
                 deviceName = deviceName,
                 rssi = result.rssi,
                 txPowerLevel = record?.txPowerLevel?.takeIf { it != Int.MIN_VALUE },
@@ -103,17 +109,13 @@ class WardrivingService : Service() {
                 iBeaconUuid = iBeacon?.uuid,
                 beaconType = decoded?.type,
                 beaconPayload = decoded?.summary,
-                lastSeenMillis = System.currentTimeMillis(),
+                firstSeenMillis = existing?.firstSeenMillis ?: now,
+                lastSeenMillis = now,
                 rawBytes = record?.bytes,
-                isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    result.isConnectable
-                } else {
-                    record?.advertiseFlags?.let { flags -> (flags and 0x02) != 0 } ?: false
-                }
+                isConnectable = result.isConnectable
             )
             bleDeviceMap[info.macAddress] = info
             if (bleDeviceMap.size > 500) {
-                val now = System.currentTimeMillis()
                 bleDeviceMap.entries.removeIf { now - it.value.lastSeenMillis > 120_000 }
             }
             ScanStatusRepository.updateBleDevices(bleDeviceMap.values.toList())

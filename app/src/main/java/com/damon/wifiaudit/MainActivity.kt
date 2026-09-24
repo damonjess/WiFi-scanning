@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -31,16 +31,16 @@ import com.damon.wifiaudit.ui.PermissionGateScreen
 import com.damon.wifiaudit.ui.theme.WiFiAuditTheme
 import com.damon.wifiaudit.vendor.OuiVendorLookup
 import android.util.Log
-import com.damon.wifiaudit.util.LockManager
+import com.damon.wifiaudit.util.SecurityGateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val lockdownReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ProximityMonitorService.ACTION_LOCKDOWN) {
-                LockManager.lock()
+                SecurityGateManager.lock()
             }
         }
     }

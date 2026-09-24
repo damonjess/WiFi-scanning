@@ -15,7 +15,8 @@ data class BleDeviceInfo(
     val beaconType: String? = null,
     /** One-line human-readable summary of the decoded beacon payload. */
     val beaconPayload: String? = null,
-    val lastSeenMillis: Long,
+    val firstSeenMillis: Long = System.currentTimeMillis(),
+    val lastSeenMillis: Long = System.currentTimeMillis(),
     val manufacturerFromAdv: String? = null,
     val rawBytes: ByteArray? = null,
     val isConnectable: Boolean = false

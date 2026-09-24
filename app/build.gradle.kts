@@ -69,6 +69,9 @@ dependencies {
     // Keystore-backed key storage
     implementation(libs.androidx.security.crypto)
 
+    // Biometric / device-credential authentication (app lock screen)
+    implementation(libs.androidx.biometric)
+
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -11,6 +11,7 @@ sqlcipher = "4.6.1"
 sqlite = "2.4.0"
 playServicesLocation = "21.3.0"
 securityCrypto = "1.1.0-alpha06"
+biometric = "1.1.0"
 lifecycle = "2.8.4"
 paging = "3.3.2"
 osmdroid = "6.1.18"
@@ -35,6 +36,7 @@ sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "
 androidx-sqlite = { group = "androidx.sqlite", name = "sqlite", version.ref = "sqlite" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 androidx-lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycle" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }

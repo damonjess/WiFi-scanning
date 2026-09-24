@@ -45,8 +45,18 @@ object ScanStatusRepository {
     private val _isServiceRunning = MutableStateFlow(false)
     val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
 
+    private val _serviceStartTimeMillis = MutableStateFlow(0L)
+    val serviceStartTimeMillis: StateFlow<Long> = _serviceStartTimeMillis.asStateFlow()
+
     fun setServiceRunning(running: Boolean) {
         _isServiceRunning.value = running
+        if (running) {
+            if (_serviceStartTimeMillis.value == 0L) {
+                _serviceStartTimeMillis.value = System.currentTimeMillis()
+            }
+        } else {
+            _serviceStartTimeMillis.value = 0L
+        }
     }
 
     fun updateLocation(location: Location) {
